@@ -8,6 +8,7 @@ ObsCore time columns ``t_min`` / ``t_max`` are Modified Julian Dates (MJD).
 """
 from collections import defaultdict
 from typing import Any
+import time
 
 import numpy as np
 import pandas as pd
@@ -21,6 +22,8 @@ from pyvo.dal import DALAccessError
 DEFAULT_COLLECTION = "spherex_dr1"
 BAND_COLUMN = "energy_bandpassname"
 UNKNOWN_BAND = "unknown"
+_MAX_ATTEMPTS = 5
+_RETRY_DELAY_SEC = 2.0
 
 
 class UpstreamServiceError(Exception):
@@ -30,11 +33,23 @@ class UpstreamServiceError(Exception):
 def query_images(ra: float, dec: float, radius_arcsec: float, collection: str) -> Table:
     """Run a SIA v2 cone search on IRSA and return the ObsCore table."""
     coord = SkyCoord(ra=ra, dec=dec, unit="deg", frame="icrs")
-    try:
-        return Irsa.query_sia(pos=(coord, radius_arcsec * u.arcsec), collection=collection)
-    except (DALAccessError, requests.RequestException, OSError) as exc:
-        # OSError covers socket errors, ConnectionError and TimeoutError.
-        raise UpstreamServiceError(f"IRSA SIA query failed: {exc.__class__.__name__}") from exc
+    last_exc: Exception | None = None
+    for attempt in range(1, _MAX_ATTEMPTS + 1):
+        try:
+            return Irsa.query_sia(
+                pos=(coord, radius_arcsec * u.arcsec),
+                collection=collection,
+            )
+        except (DALAccessError, requests.RequestException, OSError) as exc:
+            # OSError covers socket errors, ConnectionError and TimeoutError.
+            last_exc = exc
+            if attempt < _MAX_ATTEMPTS:
+                time.sleep(_RETRY_DELAY_SEC * attempt)
+                continue
+            detail = str(exc).strip() or exc.__class__.__name__
+            raise UpstreamServiceError(f"IRSA SIA query failed: {detail}") from exc
+    assert last_exc is not None
+    raise UpstreamServiceError(f"IRSA SIA query failed: {last_exc}") from last_exc
 
 
 def table_to_dataframe(table: Table) -> pd.DataFrame:
