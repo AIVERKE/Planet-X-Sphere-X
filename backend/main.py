@@ -4,7 +4,7 @@ from dotenv import load_dotenv
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
-from routers import example
+from routers import example, observations
 
 load_dotenv()
 
@@ -31,3 +31,4 @@ def health() -> dict[str, str]:
 
 
 app.include_router(example.router, prefix="/api")
+app.include_router(observations.router, prefix="/api")
