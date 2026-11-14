@@ -1,0 +1,96 @@
+@import url('https://fonts.googleapis.com/css2?family=Urbanist:wght@400;500;600;700&display=swap');
+
+:root {
+  --mof-petroleum: #1a4756;
+  --mof-turquoise: #028191;
+  --mof-coral: #f04d65;
+  --mof-steel: #3c6893;
+  --mof-emerald: #2e8b57;
+  --mof-danger: #d93852;
+  --mof-ivory: #f7f5f1;
+  --mof-ink: #1a2a32;
+  /* Tipografías del proyecto: Urbanist (UI) + Outfit (explorador inmersivo). */
+  --mof-font: 'Urbanist', system-ui, sans-serif;
+  --explorer-font: 'Outfit', system-ui, sans-serif;
+}
+
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+}
+
+html,
+body,
+#app {
+  min-height: 100%;
+}
+
+body {
+  margin: 0;
+  font-family: var(--mof-font);
+  color: var(--mof-ink);
+  background: var(--mof-ivory);
+}
+
+/* —— Action buttons —— */
+.btn-primary {
+  background-color: var(--mof-petroleum) !important;
+  color: #fff !important;
+}
+
+.btn-secondary {
+  background-color: var(--mof-turquoise) !important;
+  color: #fff !important;
+}
+
+.btn-cta {
+  background-color: var(--mof-coral) !important;
+  color: #fff !important;
+}
+
+.btn-neutral {
+  background-color: var(--mof-steel) !important;
+  color: #fff !important;
+}
+
+.btn-danger {
+  background-color: var(--mof-danger) !important;
+  color: #fff !important;
+}
+
+/* —— Status chips —— */
+.chip-activo {
+  background-color: color-mix(in srgb, var(--mof-emerald) 18%, white);
+  color: var(--mof-emerald);
+}
+
+.chip-pendiente {
+  background-color: color-mix(in srgb, var(--mof-turquoise) 18%, white);
+  color: var(--mof-turquoise);
+}
+
+.chip-rechazado {
+  background-color: color-mix(in srgb, var(--mof-danger) 18%, white);
+  color: var(--mof-danger);
+}
+
+.chip-borrador {
+  background-color: color-mix(in srgb, var(--mof-steel) 18%, white);
+  color: var(--mof-steel);
+}
+
+.chip-categoria {
+  background-color: color-mix(in srgb, var(--mof-petroleum) 14%, white);
+  color: var(--mof-petroleum);
+}
+
+.badge-contador {
+  background-color: var(--mof-coral);
+  color: #fff;
+}
+
+/* Document canvas: preserve user typography inside authored content */
+.hoja-documento {
+  font-family: inherit;
+}
