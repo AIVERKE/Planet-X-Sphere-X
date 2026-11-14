@@ -1,0 +1,128 @@
+@import url('https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600&display=swap');
+@import 'tailwindcss/theme.css' layer(theme);
+@import 'tailwindcss/utilities.css' layer(utilities);
+
+@theme {
+  --font-outfit: 'Outfit', system-ui, sans-serif;
+}
+
+html.is-explorer,
+html.is-explorer body,
+html.is-explorer #app {
+  height: auto !important;
+  min-height: 100%;
+  overflow-x: hidden;
+  overflow-y: auto !important;
+  background: #03050a !important;
+  color: #fff;
+}
+
+html.is-look-locked,
+html.is-look-locked body {
+  overflow: hidden !important;
+  height: 100% !important;
+  overscroll-behavior: none;
+}
+
+html.is-explorer body,
+.explorer-root {
+  font-family: var(--font-outfit);
+}
+
+/* Reset native/Vuetify button chrome inside the immersive HUD */
+.explorer-root button,
+.explorer-root input {
+  appearance: none;
+  -webkit-appearance: none;
+  background: transparent;
+  border: 0;
+  border-radius: 0;
+  box-shadow: none;
+  color: inherit;
+  font: inherit;
+}
+
+.explorer-root button:focus-visible,
+.explorer-root input:focus-visible {
+  outline: 1px solid rgba(255, 255, 255, 0.55);
+  outline-offset: 3px;
+}
+
+.hud-text {
+  color: #f4f7fb;
+  text-shadow:
+    0 1px 2px rgba(0, 0, 0, 0.85),
+    0 0 18px rgba(0, 0, 0, 0.45);
+}
+
+.hud-text-muted {
+  color: rgba(244, 247, 251, 0.72);
+  text-shadow:
+    0 1px 2px rgba(0, 0, 0, 0.85),
+    0 0 14px rgba(0, 0, 0, 0.4);
+}
+
+.hud-link {
+  color: rgba(244, 247, 251, 0.78);
+  text-shadow:
+    0 1px 2px rgba(0, 0, 0, 0.85),
+    0 0 14px rgba(0, 0, 0, 0.4);
+  transition: color 160ms ease, opacity 160ms ease;
+}
+
+.hud-link:hover,
+.hud-link.is-active {
+  color: #ffffff;
+}
+
+.hud-underline {
+  background-image: linear-gradient(currentColor, currentColor);
+  background-position: 0 100%;
+  background-repeat: no-repeat;
+  background-size: 0 1px;
+  transition: background-size 180ms ease, color 160ms ease;
+}
+
+.hud-underline.is-active,
+.hud-underline:hover {
+  background-size: 100% 1px;
+}
+
+.explorer-vignette {
+  position: absolute;
+  inset: 0;
+  background:
+    linear-gradient(180deg, rgba(0, 0, 0, 0.38) 0%, transparent 18%, transparent 72%, rgba(0, 0, 0, 0.42) 100%),
+    radial-gradient(ellipse at center, transparent 48%, rgba(0, 0, 0, 0.35) 100%);
+  pointer-events: none;
+}
+
+.scroll-line {
+  transform-origin: top;
+  animation: explorer-fall 1.8s ease-in-out infinite;
+}
+
+@keyframes explorer-fall {
+  0% {
+    transform: scaleY(0);
+    transform-origin: top;
+  }
+  45% {
+    transform: scaleY(1);
+    transform-origin: top;
+  }
+  55% {
+    transform: scaleY(1);
+    transform-origin: bottom;
+  }
+  100% {
+    transform: scaleY(0);
+    transform-origin: bottom;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .scroll-line {
+    animation: none;
+  }
+}
