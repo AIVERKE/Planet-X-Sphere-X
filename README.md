@@ -83,6 +83,49 @@ uvicorn main:app --reload
 - Salud: <http://localhost:8000/health> → `{"status":"ok"}`
 - Swagger UI: <http://localhost:8000/docs>
 - Endpoint de ejemplo: <http://localhost:8000/api/example>
+- Observaciones SPHEREx: <http://localhost:8000/api/observations?ra=270&dec=66.56&radius=10>
+
+### 5. Endpoint de observaciones (`GET /api/observations`)
+
+Consulta el servicio SIA v2 de IRSA (`Irsa.query_sia`) y devuelve los metadatos ObsCore de las imágenes que cubren una posición, filtrados por época. **No descarga FITS**: cada registro incluye `access_url` (imagen completa) y `cutout_url` (recorte en el servidor de IRSA centrado en la posición pedida).
+
+| Parámetro       | Tipo  | Por defecto   | Descripción |
+|-----------------|-------|---------------|-------------|
+| `ra`            | float | — (obligatorio) | Ascensión recta, grados ICRS (`0 ≤ ra < 360`) |
+| `dec`           | float | — (obligatorio) | Declinación, grados ICRS (`-90 ≤ dec ≤ 90`) |
+| `radius`        | float | `1.0`         | Radio de búsqueda en **segundos de arco** (`0 < radius ≤ 3600`) |
+| `t_start`       | float | `0.0`         | Límite inferior de `t_min`, en **MJD** |
+| `t_end`         | float | `99999.0`     | Límite superior de `t_max`, en **MJD** |
+| `collection`    | str   | `spherex_dr1` | Colección SIA de IRSA (p. ej. `spherex_dr1_deep`, `spherex_qr3`) |
+| `cutout_size`   | float | `0.05`        | Lado del recorte en grados (`0 < size ≤ 1`) |
+| `group_by_band` | bool  | `false`       | Agrupar por `energy_bandpassname` (`SPHEREx-D1` … `SPHEREx-D6`) |
+
+Una imagen se incluye solo si su exposición completa cae dentro de la ventana (`t_min ≥ t_start` y `t_max ≤ t_end`). Los resultados se ordenan por `t_min`.
+
+Respuesta (`group_by_band=false`):
+
+```json
+{
+  "query": {"ra": 270.0, "dec": 66.56, "radius": 10.0, "t_start": 0.0, "t_end": 99999.0, "collection": "spherex_dr1", "cutout_size": 0.05},
+  "count": 439,
+  "observations": [
+    {"obs_id": "2025W17_4B_0091_1", "energy_bandpassname": "SPHEREx-D5", "t_min": 60790.35, "t_max": 60790.35, "access_url": "https://irsa.ipac.caltech.edu/…fits", "cutout_url": "https://irsa.ipac.caltech.edu/…fits?center=270.0,66.56&size=0.05", "...": "resto de columnas ObsCore"}
+  ]
+}
+```
+
+Con `group_by_band=true` se devuelve `bands: {"SPHEREx-D1": [...], ...}` en lugar de `observations`. Los valores ausentes (NaN/enmascarados) llegan como `null`.
+
+Códigos de error: `404` si no hay imágenes en la posición o ninguna en la ventana temporal; `422` si los parámetros no son válidos (incluido `t_start > t_end`); `503` si IRSA no responde o falla.
+
+### Tests
+
+```powershell
+pip install -r requirements-dev.txt
+pytest -q
+```
+
+Los tests simulan `Irsa.query_sia`, por lo que no necesitan red.
 
 ## Frontend
 
