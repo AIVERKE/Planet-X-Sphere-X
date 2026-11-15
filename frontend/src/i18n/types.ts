@@ -142,6 +142,8 @@ export interface Messages {
     ctaEphemeris: string
     ephemerisNote: string
     rows: Record<'sky', string>
+    /** aria-label del canvas 3D de cada forma. */
+    orb: Record<'nebula' | 'ring' | 'galaxy' | 'jupiter', string>
   }
   routes: {
     explorer: string

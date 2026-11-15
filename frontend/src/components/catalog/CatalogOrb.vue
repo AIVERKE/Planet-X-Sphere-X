@@ -1,27 +1,8 @@
 <script setup lang="ts">
-import { onBeforeUnmount, onMounted, ref } from 'vue'
-import {
-  AdditiveBlending,
-  AmbientLight,
-  BufferGeometry,
-  CanvasTexture,
-  Color,
-  DirectionalLight,
-  Float32BufferAttribute,
-  Group,
-  Matrix4,
-  Mesh,
-  PerspectiveCamera,
-  Points,
-  PointsMaterial,
-  Scene,
-  ShaderMaterial,
-  SphereGeometry,
-  SRGBColorSpace,
-  Vector3,
-  WebGLRenderer,
-} from 'three'
-import { NOISE_GLSL } from '@/three/materials/noise.glsl'
+import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
+import { Color, PerspectiveCamera, Scene, SRGBColorSpace, TextureLoader, WebGLRenderer } from 'three'
+import { SHAPE_BUILDERS, type ShapeBuild, type ShapeContext } from '@/components/catalog/shapes'
+import { useI18n } from '@/composables/useI18n'
 import type { CatalogShape } from '@/data/skyCatalog'
 
 const props = defineProps<{
@@ -29,336 +10,212 @@ const props = defineProps<{
   colors: [string, string, string]
 }>()
 
+const { m } = useI18n()
+const label = computed(() => m.value.catalog.orb[props.shape])
+
 const host = ref<HTMLElement | null>(null)
-const camLocal = new Vector3()
-const inverseWorld = new Matrix4()
+const canvas = ref<HTMLCanvasElement | null>(null)
+
+/** DPR máximo: más no se nota en tarjetas pequeñas y cuesta GPU en móvil. */
+const MAX_DPR = 1.5
+/** Campo de visión mínimo (grados) en el eje más corto del canvas. */
+const MIN_FOV = 30
 
 let renderer: WebGLRenderer | null = null
 let scene: Scene | null = null
 let camera: PerspectiveCamera | null = null
-let root: Group | null = null
-let volume: Mesh | null = null
+let build: ShapeBuild | null = null
+let intersection: IntersectionObserver | null = null
+let resizer: ResizeObserver | null = null
 let frame = 0
+let last = 0
+let elapsed = 0
+let running = false
+let onScreen = false
 let disposed = false
 const trash: { dispose: () => void }[] = []
+const time = { value: 0 }
+const pointScale = { value: 1 }
+const motion = window.matchMedia('(prefers-reduced-motion: reduce)')
 
-const volumeVertex = /* glsl */ `
-varying vec3 vObj;
-void main() {
-  vObj = position;
-  gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
-}
-`
-
-const volumeFragment = /* glsl */ `
-${NOISE_GLSL}
-varying vec3 vObj;
-uniform vec3 uCam;
-uniform float uKind;
-uniform vec3 uA;
-uniform vec3 uB;
-uniform vec3 uC;
-
-float fbm3(vec3 p) {
-  float v = 0.0;
-  float a = 0.55;
-  for (int i = 0; i < 3; i++) {
-    v += a * noise(p);
-    p = p * 2.05 + 0.2;
-    a *= 0.5;
-  }
-  return v;
+interface OrbDebug {
+  shape: CatalogShape
+  readonly renderer: WebGLRenderer | null
+  readonly running: boolean
+  /** Dibuja un cuadro (para medir el costo de render). */
+  draw: () => void
 }
 
-float nebula(vec3 p) {
-  vec3 q = p * 1.7;
-  q.x += fbm3(p * 1.15) * 0.95;
-  q.y += fbm3(p * 1.15 + 6.0) * 0.95;
-  q.z += fbm3(p * 1.15 + 12.0) * 0.55;
-  float filaments = pow(ridged(q * 1.55), 1.35);
-  float body = smoothstep(0.12, 0.7, fbm3(p * 1.45 + 2.0));
-  float mask = smoothstep(0.98, 0.12, length(p));
-  return filaments * (0.45 + body) * mask * 2.1;
+/** Solo en desarrollo: window.__spxOrbs permite revisar contextos vivos y renderer.info. */
+const debug: OrbDebug = {
+  shape: props.shape,
+  get renderer() {
+    return renderer
+  },
+  get running() {
+    return running
+  },
+  draw: () => draw(),
 }
 
-float shell(vec3 p) {
-  float ring = exp(-pow(length(p.xz) - 0.5, 2.0) * 18.0) * exp(-pow(p.y * 1.8, 2.0) * 2.8);
-  float knots = 0.55 + 0.45 * ridged(p * 2.6);
-  float core = exp(-dot(p, p) * 26.0);
-  return (ring * knots * 2.4 + core * 1.3) * smoothstep(1.0, 0.12, length(p));
+function registry() {
+  const target = window as unknown as { __spxOrbs?: Set<OrbDebug> }
+  target.__spxOrbs ??= new Set()
+  return target.__spxOrbs
 }
-
-float galaxy(vec3 p) {
-  float rad = length(p.xz);
-  float disk = exp(-abs(p.y) * 3.6) * exp(-rad * rad * 0.42);
-  float arm = pow(0.5 + 0.5 * sin(atan(p.z, p.x) * 2.0 - rad * 8.5), 1.6);
-  float lanes = smoothstep(0.15, 0.8, fbm3(vec3(p.xz * 2.4, p.y)));
-  float bulge = exp(-dot(p, p) * 7.0);
-  return disk * (0.2 + arm * lanes) * 1.6 + bulge * 0.85;
-}
-
-void main() {
-  vec3 ro = uCam;
-  vec3 rd = normalize(vObj - ro);
-  float b = dot(ro, rd);
-  float c = dot(ro, ro) - 1.0;
-  float disc = b * b - c;
-  if (disc < 0.0) discard;
-  float s = sqrt(disc);
-  float t0 = max(-b - s, 0.0);
-  float t1 = -b + s;
-  const int STEPS = 28;
-  float dt = (t1 - t0) / float(STEPS);
-  vec3 col = vec3(0.0);
-  float alpha = 0.0;
-  for (int i = 0; i < STEPS; i++) {
-    vec3 p = ro + rd * (t0 + dt * (float(i) + 0.5));
-    float d = uKind < 0.5 ? nebula(p) : (uKind < 1.5 ? shell(p) : galaxy(p));
-    float heat = clamp(d, 0.0, 1.0);
-    vec3 tint = mix(uC, uB, smoothstep(0.0, 0.35, heat));
-    tint = mix(tint, uA, smoothstep(0.28, 0.85, heat));
-    tint = mix(tint, vec3(1.0, 0.96, 0.9), smoothstep(0.72, 1.15, d));
-    col += tint * d * dt * 5.2;
-    alpha += d * dt * 1.7;
-  }
-  col = col / (1.0 + col * 0.45);
-  alpha = clamp(alpha, 0.0, 0.92);
-  if (alpha < 0.02) discard;
-  gl_FragColor = vec4(col, alpha);
-}
-`
-
-const jupiterVertex = /* glsl */ `
-varying vec3 vN;
-varying vec3 vP;
-void main() {
-  vN = normalize(normalMatrix * normal);
-  vP = position;
-  gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
-}
-`
-
-const jupiterFragment = /* glsl */ `
-${NOISE_GLSL}
-varying vec3 vN;
-varying vec3 vP;
-uniform vec3 uLight;
-uniform vec3 uA;
-uniform vec3 uB;
-uniform vec3 uC;
-
-void main() {
-  vec3 n = normalize(vN);
-  vec3 p = normalize(vP);
-  float lat = asin(clamp(p.y, -1.0, 1.0));
-  float lon = atan(p.z, p.x);
-  float warp = fbm(vec3(lon * 1.4, lat * 3.2, 0.4));
-  float bands = 0.5 + 0.5 * sin(lat * 22.0 + warp * 1.6);
-  float fine = 0.5 + 0.5 * sin(lat * 48.0 + lon * 3.0 + warp);
-  vec3 cream = uC;
-  vec3 ochre = uA;
-  vec3 rust = uB;
-  vec3 col = mix(cream, ochre, bands);
-  col = mix(col, rust, smoothstep(0.62, 1.0, fine) * 0.55);
-  vec2 spot = vec2((lon - 0.6) * 1.35, (lat + 0.22) * 2.3);
-  float oval = exp(-dot(spot, spot) * 7.0);
-  col = mix(col, vec3(0.62, 0.24, 0.16), oval);
-  float ndl = clamp(dot(n, normalize(uLight)), 0.0, 1.0);
-  float rim = pow(1.0 - abs(n.z), 2.4);
-  col *= 0.22 + 0.78 * ndl;
-  col += cream * rim * 0.12;
-  gl_FragColor = vec4(col, 1.0);
-}
-`
 
 function keep<T extends { dispose: () => void }>(item: T) {
+  // Una textura puede terminar de cargar después del teardown: se libera en el acto.
+  if (disposed) {
+    item.dispose()
+    return item
+  }
   trash.push(item)
   return item
 }
 
-function kindValue(shape: CatalogShape) {
-  if (shape === 'nebula') return 0
-  if (shape === 'ring') return 1
-  return 2
+function draw() {
+  if (renderer && scene && camera) renderer.render(scene, camera)
 }
 
-function makeVolume(shape: CatalogShape) {
-  const material = keep(
-    new ShaderMaterial({
-      vertexShader: volumeVertex,
-      fragmentShader: volumeFragment,
-      transparent: true,
-      depthWrite: false,
-      blending: AdditiveBlending,
-      uniforms: {
-        uCam: { value: new Vector3(0, 0, 4) },
-        uKind: { value: kindValue(shape) },
-        uA: { value: new Color(props.colors[0]) },
-        uB: { value: new Color(props.colors[1]) },
-        uC: { value: new Color(props.colors[2]) },
-      },
-    }),
-  )
-  const mesh = new Mesh(keep(new SphereGeometry(1, 40, 28)), material)
-  mesh.name = 'volume'
-  return mesh
+function pose(t: number) {
+  time.value = t
+  build?.update(t)
 }
 
-function makeJupiter() {
-  const material = keep(
-    new ShaderMaterial({
-      vertexShader: jupiterVertex,
-      fragmentShader: jupiterFragment,
-      uniforms: {
-        uLight: { value: new Vector3(0.4, 0.35, 1).normalize() },
-        uA: { value: new Color(props.colors[0]) },
-        uB: { value: new Color(props.colors[1]) },
-        uC: { value: new Color(props.colors[2]) },
-      },
-    }),
-  )
-  return new Mesh(keep(new SphereGeometry(1, 64, 40)), material)
+function invalidate() {
+  if (!disposed && !running) draw()
 }
 
-function starTexture() {
-  const canvas = document.createElement('canvas')
-  canvas.width = 32
-  canvas.height = 32
-  const ctx = canvas.getContext('2d')
-  if (!ctx) return null
-  const glow = ctx.createRadialGradient(16, 16, 0, 16, 16, 16)
-  glow.addColorStop(0, 'rgba(255,250,240,1)')
-  glow.addColorStop(0.35, 'rgba(255,244,220,0.7)')
-  glow.addColorStop(1, 'rgba(255,244,220,0)')
-  ctx.fillStyle = glow
-  ctx.fillRect(0, 0, 32, 32)
-  const texture = new CanvasTexture(canvas)
-  texture.colorSpace = SRGBColorSpace
-  return keep(texture)
+function loop(now: number) {
+  if (!running) return
+  const dt = Math.min((now - last) / 1000, 0.05)
+  last = now
+  elapsed += dt
+  pose(elapsed)
+  draw()
+  frame = requestAnimationFrame(loop)
 }
 
-function starfield() {
-  const positions: number[] = []
-  for (let i = 0; i < 220; i += 1) {
-    const radius = 5.5 + Math.random() * 3
-    const theta = Math.random() * Math.PI * 2
-    const phi = Math.acos(2 * Math.random() - 1)
-    positions.push(
-      radius * Math.sin(phi) * Math.cos(theta),
-      radius * Math.sin(phi) * Math.sin(theta) * 0.72,
-      radius * Math.cos(phi),
-    )
+function shouldRun() {
+  return !!renderer && onScreen && !document.hidden && !motion.matches
+}
+
+/** Arranca o detiene el bucle según visibilidad, pestaña y prefers-reduced-motion. */
+function sync() {
+  if (disposed) return
+  const want = shouldRun()
+  if (want && !running) {
+    running = true
+    last = performance.now()
+    frame = requestAnimationFrame(loop)
+  } else if (!want && running) {
+    running = false
+    cancelAnimationFrame(frame)
   }
-  const geometry = keep(new BufferGeometry())
-  geometry.setAttribute('position', new Float32BufferAttribute(positions, 3))
-  return new Points(
-    geometry,
-    keep(
-      new PointsMaterial({
-        color: '#fff6e4',
-        map: starTexture() ?? undefined,
-        size: 0.045,
-        transparent: true,
-        opacity: 0.9,
-        depthWrite: false,
-        sizeAttenuation: true,
-      }),
-    ),
-  )
-}
-
-function buildRoot() {
-  const group = new Group()
-  if (props.shape === 'jupiter') {
-    group.add(makeJupiter())
-  } else {
-    volume = makeVolume(props.shape)
-    group.add(volume)
+  if (!running && motion.matches && build) {
+    // Movimiento reducido: un solo cuadro estático y representativo.
+    elapsed = build.stillTime
+    pose(elapsed)
+    draw()
   }
-  return group
 }
 
 function resize() {
   if (!renderer || !camera || !host.value) return
   const width = Math.max(host.value.clientWidth, 1)
   const height = Math.max(host.value.clientHeight, 1)
-  camera.aspect = width / height
+  const aspect = width / height
+  const half = (MIN_FOV * Math.PI) / 360
+  camera.aspect = aspect
+  camera.fov = aspect >= 1 ? MIN_FOV : (2 * Math.atan(Math.tan(half) / aspect) * 180) / Math.PI
   camera.updateProjectionMatrix()
   renderer.setSize(width, height, false)
-}
-
-function syncCamera() {
-  if (!volume || !camera) return
-  volume.updateWorldMatrix(true, false)
-  inverseWorld.copy(volume.matrixWorld).invert()
-  camLocal.copy(camera.position).applyMatrix4(inverseWorld)
-  const material = volume.material as ShaderMaterial
-  material.uniforms.uCam.value.copy(camLocal)
-}
-
-function tick() {
-  if (disposed || !renderer || !scene || !camera) return
-  const reduce = window.matchMedia('(prefers-reduced-motion: reduce)').matches
-  if (root && !reduce) root.rotation.y += 0.0045
-  syncCamera()
-  renderer.render(scene, camera)
-  frame = requestAnimationFrame(tick)
+  pointScale.value = (height * renderer.getPixelRatio()) / (2 * Math.tan((camera.fov * Math.PI) / 360))
 }
 
 function boot() {
-  const node = host.value
-  if (!node || renderer) return
-  const canvas = document.createElement('canvas')
-  node.appendChild(canvas)
-  renderer = new WebGLRenderer({ canvas, alpha: true, antialias: true, powerPreference: 'high-performance' })
-  renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 1.5))
+  const node = canvas.value
+  if (!node || !host.value || renderer || disposed) return
+  try {
+    renderer = new WebGLRenderer({ canvas: node, alpha: true, antialias: true, powerPreference: 'high-performance' })
+  } catch {
+    // Sin WebGL: el canvas queda vacío, pero conserva su aria-label.
+    return
+  }
   renderer.setClearColor(0x000000, 0)
   renderer.outputColorSpace = SRGBColorSpace
   scene = new Scene()
-  camera = new PerspectiveCamera(30, 1, 0.1, 30)
-  camera.position.set(0, 0.05, props.shape === 'jupiter' ? 4.3 : 3.7)
-  scene.add(starfield())
-  scene.add(new AmbientLight('#fff4e4', 0.45))
-  const key = new DirectionalLight('#fff8ee', 2.2)
-  key.position.set(2.4, 1.4, 3)
-  scene.add(key)
-  root = buildRoot()
-  scene.add(root)
+  camera = new PerspectiveCamera(MIN_FOV, 1, 0.1, 40)
+
+  const loader = new TextureLoader()
+  const ctx: ShapeContext = {
+    keep,
+    colors: [new Color(props.colors[0]), new Color(props.colors[1]), new Color(props.colors[2])],
+    time,
+    pointScale,
+    loadTexture: (url, onLoad) => loader.load(url, onLoad),
+    invalidate,
+  }
+  build = SHAPE_BUILDERS[props.shape](ctx)
+  renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, build.pixelRatio ?? MAX_DPR, MAX_DPR))
+  camera.position.set(0, 0, build.cameraZ)
+  scene.add(build.object)
+
   resize()
-  frame = requestAnimationFrame(tick)
+  resizer = new ResizeObserver(() => {
+    resize()
+    invalidate()
+  })
+  resizer.observe(host.value)
+
+  elapsed = build.stillTime
+  pose(elapsed)
+  if (import.meta.env.DEV) registry().add(debug)
+  sync()
+  if (!running) draw()
 }
 
 function teardown() {
   disposed = true
+  running = false
   cancelAnimationFrame(frame)
-  if (scene && root) scene.remove(root)
+  intersection?.disconnect()
+  resizer?.disconnect()
+  document.removeEventListener('visibilitychange', sync)
+  motion.removeEventListener('change', sync)
+  if (scene && build) scene.remove(build.object)
   for (const item of trash) item.dispose()
   trash.length = 0
   renderer?.dispose()
   renderer?.forceContextLoss()
+  if (import.meta.env.DEV) registry().delete(debug)
   renderer = null
   scene = null
   camera = null
-  root = null
-  volume = null
-  host.value?.replaceChildren()
+  build = null
 }
 
 onMounted(() => {
   const node = host.value
   if (!node) return
-  const observer = new IntersectionObserver((entries) => {
-    if (entries.some((entry) => entry.isIntersecting)) boot()
+  intersection = new IntersectionObserver((entries) => {
+    onScreen = entries[entries.length - 1]?.isIntersecting ?? false
+    if (onScreen) boot()
+    sync()
   })
-  observer.observe(node)
-  onBeforeUnmount(() => observer.disconnect())
+  intersection.observe(node)
+  document.addEventListener('visibilitychange', sync)
+  motion.addEventListener('change', sync)
 })
 
 onBeforeUnmount(teardown)
 </script>
 
 <template>
-  <div ref="host" class="orb" />
+  <div ref="host" class="orb">
+    <canvas ref="canvas" role="img" :aria-label="label" />
+  </div>
 </template>
 
 <style scoped>
@@ -368,7 +225,7 @@ onBeforeUnmount(teardown)
   pointer-events: none;
 }
 
-.orb :deep(canvas) {
+.orb canvas {
   display: block;
   width: 100%;
   height: 100%;
