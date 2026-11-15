@@ -17,6 +17,8 @@ import {
   fetchObservations,
   type ObservationsResponse,
 } from '@/services/http'
+import SpherexPlayer from '@/components/mission/SpherexPlayer.vue'
+import { useFramePlayer } from '@/composables/useFramePlayer'
 import {
   fetchPanstarrsStamps,
   panstarrsPortalUrl,
@@ -37,6 +39,7 @@ import '@/styles/explorer.css'
 
 type ViewStage = 'idle' | 'flying' | 'hd'
 type SideTab = 'info' | 'stamps'
+type MotionMode = 'spherex' | 'wise'
 type StampMode = 'epochs' | 'bands'
 type StampFrame = {
   id: string
@@ -47,6 +50,7 @@ type StampFrame = {
 
 const FOV_MIN = 0.08
 const FOV_MAX = 40
+const CUTOUT_SIZE_DEG = 0.08
 
 const router = useRouter()
 const host = ref<HTMLElement | null>(null)
@@ -89,12 +93,20 @@ const stampLoading = ref(false)
 const stampError = ref<string | null>(null)
 const stampRa = ref<number | null>(null)
 const stampDec = ref<number | null>(null)
-const blinkOn = ref(false)
-const blinkMs = ref(700)
-const blinkIndex = ref(0)
+const stampsKey = ref('')
+const motionMode = ref<MotionMode>('spherex')
+const motionRadius = ref(90)
+const {
+  index: blinkIndex,
+  playing: blinkOn,
+  msPerFrame: blinkMs,
+  play: startBlink,
+  stop: stopBlink,
+  toggle: toggleBlink,
+  select: selectStamp,
+} = useFramePlayer(computed(() => stamps.value.length))
 
 let coordTimer: ReturnType<typeof setInterval> | null = null
-let blinkTimer: ReturnType<typeof setInterval> | null = null
 let journeyToken = 0
 let stampLoadToken = 0
 
@@ -322,6 +334,9 @@ function parseCoord(raw: string): number | null {
   return Number.isFinite(n) ? n : null
 }
 
+const playerRa = computed(() => stampRa.value ?? parseCoord(raInput.value))
+const playerDec = computed(() => stampDec.value ?? parseCoord(decInput.value))
+
 function goToCoords() {
   const aladin = aladinRef.value
   if (!aladin) {
@@ -406,7 +421,7 @@ async function loadObservationsAt(ra: number, dec: number, radius = 90) {
         dec,
         radius,
         collection: 'spherex_dr1',
-        cutout_size: 0.08,
+        cutout_size: CUTOUT_SIZE_DEG,
       })
       obsLoading.value = false
       return
@@ -437,10 +452,12 @@ async function loadObservations() {
   }
   drawerOpen.value = true
   sideTab.value = 'info'
-  await Promise.all([
-    loadObservationsAt(ra, dec, activeTarget.value?.obsRadius ?? 90),
-    loadStampsAt(ra, dec),
-  ])
+  motionRadius.value = activeTarget.value?.obsRadius ?? 90
+  stampRa.value = ra
+  stampDec.value = dec
+  const jobs: Promise<unknown>[] = [loadObservationsAt(ra, dec, motionRadius.value)]
+  if (motionMode.value === 'wise') jobs.push(loadStampsAt(ra, dec))
+  await Promise.all(jobs)
 }
 
 async function loadStampsAt(ra: number, dec: number, mode: StampMode = stampMode.value) {
@@ -453,6 +470,7 @@ async function loadStampsAt(ra: number, dec: number, mode: StampMode = stampMode
   stampMode.value = mode
   blinkIndex.value = 0
   stamps.value = []
+  stampsKey.value = ''
 
   try {
     if (mode === 'epochs') {
@@ -464,6 +482,7 @@ async function loadStampsAt(ra: number, dec: number, mode: StampMode = stampMode
         jpegUrl: e.jpegUrl,
         sub: e.yearHint,
       }))
+      stampsKey.value = `${ra},${dec},${mode}`
       stampLoading.value = false
       startBlink()
       return
@@ -477,6 +496,7 @@ async function loadStampsAt(ra: number, dec: number, mode: StampMode = stampMode
       jpegUrl: b.jpegUrl,
       sub: 'PS1',
     }))
+    stampsKey.value = `${ra},${dec},${mode}`
   } catch (error) {
     if (token !== stampLoadToken) return
     stamps.value = []
@@ -491,6 +511,21 @@ async function loadStampsAt(ra: number, dec: number, mode: StampMode = stampMode
   }
 }
 
+function showSpherex() {
+  motionMode.value = 'spherex'
+  stopBlink()
+}
+
+async function showWiseCompare() {
+  motionMode.value = 'wise'
+  const ra = stampRa.value
+  const dec = stampDec.value
+  if (ra == null || dec == null) return
+  const key = `${ra},${dec},${stampMode.value}`
+  if (stampsKey.value === key && stamps.value.length) return
+  await loadStampsAt(ra, dec, stampMode.value)
+}
+
 async function setStampMode(mode: StampMode) {
   if (stampRa.value == null || stampDec.value == null) {
     stampMode.value = mode
@@ -500,43 +535,11 @@ async function setStampMode(mode: StampMode) {
   await loadStampsAt(stampRa.value, stampDec.value, mode)
 }
 
-function stopBlink() {
-  blinkOn.value = false
-  if (blinkTimer) {
-    clearInterval(blinkTimer)
-    blinkTimer = null
-  }
-}
-
-function startBlink() {
-  if (stamps.value.length < 2) return
-  stopBlink()
-  blinkOn.value = true
-  blinkTimer = setInterval(() => {
-    blinkIndex.value = (blinkIndex.value + 1) % stamps.value.length
-  }, Math.max(200, blinkMs.value))
-}
-
-function toggleBlink() {
-  if (blinkOn.value) stopBlink()
-  else startBlink()
-}
-
-function selectStamp(index: number) {
-  blinkIndex.value = index
-  if (blinkOn.value) {
-    stopBlink()
-    startBlink()
-  }
-}
-
-function onBlinkMsChange() {
-  if (blinkOn.value) startBlink()
-}
-
 function openStampsTab() {
   drawerOpen.value = true
   sideTab.value = 'stamps'
+  motionMode.value = 'spherex'
+  stopBlink()
 }
 
 async function visitTarget(target: SkyTarget) {
@@ -553,6 +556,9 @@ async function visitTarget(target: SkyTarget) {
 
   stage.value = 'flying'
   stageHint.value = target.name
+  stampRa.value = target.ra
+  stampDec.value = target.dec
+  motionRadius.value = target.obsRadius
 
   surveyId.value = 'esa-dss'
   applySurvey()
@@ -568,11 +574,10 @@ async function visitTarget(target: SkyTarget) {
   if (token !== journeyToken) return
 
   stage.value = 'hd'
-  if (target.id === 'wiseview-demo') sideTab.value = 'stamps'
-  await Promise.all([
-    loadObservationsAt(target.ra, target.dec, target.obsRadius),
-    loadStampsAt(target.ra, target.dec, 'epochs'),
-  ])
+  if (target.id === 'wiseview-demo' || target.id === 'wise-0855') sideTab.value = 'stamps'
+  const jobs: Promise<unknown>[] = [loadObservationsAt(target.ra, target.dec, target.obsRadius)]
+  if (motionMode.value === 'wise') jobs.push(loadStampsAt(target.ra, target.dec, 'epochs'))
+  await Promise.all(jobs)
 }
 
 function useObsTarget(obs: Record<string, unknown>) {
@@ -584,7 +589,9 @@ function useObsTarget(obs: Record<string, unknown>) {
   fovInput.value = 0.7
   goToCoords()
   stageHint.value = shortObsId(obs.obs_id)
-  void loadStampsAt(ra, dec)
+  stampRa.value = ra
+  stampDec.value = dec
+  if (motionMode.value === 'wise') void loadStampsAt(ra, dec)
 }
 
 function openExternal(url: unknown) {
@@ -732,7 +739,7 @@ onUnmounted(() => {
             :class="{ 'is-on': sideTab === 'stamps' }"
             @click="sideTab = 'stamps'"
           >
-            Sellos
+            Movimiento
           </button>
         </div>
         <button type="button" class="panel__x" @click="drawerOpen = false">×</button>
@@ -782,11 +789,40 @@ onUnmounted(() => {
         </ul>
 
         <button type="button" class="btn btn--ghost info-more" @click="openStampsTab">
-          Ver movimiento (épocas) →
+          Ver movimiento SPHEREx →
         </button>
       </div>
 
       <div v-else class="panel__body stamps">
+        <div class="stamp-modes">
+          <button
+            type="button"
+            class="mode"
+            :class="{ 'is-on': motionMode === 'spherex' }"
+            @click="showSpherex"
+          >
+            SPHEREx
+          </button>
+          <button
+            type="button"
+            class="mode"
+            :class="{ 'is-on': motionMode === 'wise' }"
+            @click="showWiseCompare"
+          >
+            Comparar con WISE
+          </button>
+        </div>
+
+        <SpherexPlayer
+          v-if="motionMode === 'spherex' && playerRa != null && playerDec != null"
+          :ra="playerRa"
+          :dec="playerDec"
+          :radius="motionRadius"
+          :cutout-size="CUTOUT_SIZE_DEG"
+        />
+        <p v-else-if="motionMode === 'spherex'" class="info-err">No hay coordenadas válidas para el video.</p>
+
+        <template v-else>
         <p class="info-text">
           <template v-if="stampMode === 'epochs'">
             Blink por <strong>épocas unWISE</strong> (Legacy Survey): mismas coords, años distintos —
@@ -834,7 +870,6 @@ onUnmounted(() => {
               min="200"
               max="4000"
               step="100"
-              @change="onBlinkMsChange"
             />
           </label>
           <a
@@ -877,6 +912,7 @@ onUnmounted(() => {
             <span>{{ stamp.label }}</span>
           </button>
         </div>
+        </template>
       </div>
     </aside>
     <footer v-if="status === 'ready'" class="sky__bar">
@@ -1106,6 +1142,7 @@ onUnmounted(() => {
 
 .panel--right {
   right: 1rem;
+  width: min(24rem, calc(100vw - 2rem));
 }
 
 .panel__head {
