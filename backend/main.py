@@ -12,7 +12,7 @@ try:
 except ImportError:
     pass
 
-from routers import example, observations, presets
+from routers import cutouts, example, observations, presets
 
 load_dotenv()
 
@@ -43,4 +43,5 @@ def health() -> dict[str, str]:
 
 app.include_router(example.router, prefix="/api")
 app.include_router(observations.router, prefix="/api")
+app.include_router(cutouts.router, prefix="/api")
 app.include_router(presets.router, prefix="/api")
