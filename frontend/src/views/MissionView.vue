@@ -29,6 +29,7 @@ import {
   useMissionOnboarding,
   type MissionTourStepId,
 } from '@/composables/useMissionOnboarding'
+import LanguageToggle from '@/components/common/LanguageToggle.vue'
 import { useI18n } from '@/composables/useI18n'
 import { resolveMissionOnboarding } from '@/data/missionOnboardingCopy'
 import {
@@ -122,7 +123,7 @@ const surveyId = ref<LocalHipsId>('esa-dss')
 let esaReachable = true
 const skyAspect = ref(1.6)
 const aladinApi = shallowRef<AladinAPI | null>(null)
-const skyHint = ref('Preparando atlas…')
+const skyHint = ref('')
 const backendOk = ref<boolean | null>(null)
 const obsLoading = ref(false)
 const obsError = ref<string | null>(null)
@@ -173,6 +174,15 @@ const {
 
 const isEmbed = computed(() => readFromQuery(route.query).state.embed)
 const { m: i18nMessages } = useI18n()
+const ui = computed(() => i18nMessages.value.mission.ui)
+
+function setSkyHint(
+  key: keyof typeof i18nMessages.value.mission.ui,
+  detail?: string,
+) {
+  const base = i18nMessages.value.mission.ui[key]
+  skyHint.value = detail ? `${base}${detail}` : base
+}
 
 async function prepareOnboardingStep(id: MissionTourStepId) {
   searchOpen.value = false
@@ -307,7 +317,11 @@ const wisePortal = computed(() => {
 })
 
 const stageLabel = computed(() =>
-  stage.value === 'flying' ? 'Viajando' : stage.value === 'hd' ? 'HD' : 'Listo',
+  stage.value === 'flying'
+    ? ui.value.stageFlying
+    : stage.value === 'hd'
+      ? 'HD'
+      : ui.value.stageReady,
 )
 
 const zoomSlider = computed({
@@ -441,11 +455,11 @@ async function boot() {
   bootLock = true
   status.value = 'loading'
   errorMessage.value = ''
-  skyHint.value = 'Preparando atlas…'
+  setSkyHint('preparing')
   patchAladinNetwork()
   const slow = window.setTimeout(() => {
     if (status.value === 'loading') {
-      skyHint.value = 'El atlas está tardando…'
+      setSkyHint('slowAtlas')
     }
   }, 8000)
 
@@ -470,7 +484,7 @@ async function boot() {
     showUrlNotice(describeInvalidQuery(parsed))
 
     // ESA a veces no contesta. IRSA DSS sí, y el cielo puede abrir igual.
-    skyHint.value = 'Comprobando tiles…'
+    setSkyHint('checkingTiles')
     const hipsOrder: LocalHipsId[] = ['esa-dss', 'dss2-color']
     let hipsUrl = ''
     for (const id of hipsOrder) {
@@ -527,9 +541,9 @@ async function boot() {
         aladin.gotoRaDec(start.ra, start.dec)
         setAladinFoV(aladin, startFov)
         refreshAladinView(aladin, host.value)
-        skyHint.value = 'Atlas listo · rueda para zoom'
+        setSkyHint('atlasReady')
       } catch {
-        skyHint.value = 'Atlas inestable · prueba Survey en Buscar'
+        setSkyHint('atlasUnstable')
       }
     }, 400)
 
@@ -555,7 +569,7 @@ async function boot() {
     status.value = 'error'
     errorMessage.value =
       error instanceof Error ? error.message : 'No se pudo cargar Aladin Lite'
-    skyHint.value = 'Error al cargar el cielo'
+    setSkyHint('atlasError')
   } finally {
     window.clearTimeout(slow)
     bootLock = false
@@ -674,8 +688,11 @@ function applyCaptureSyncFromLive() {
 
   void Promise.all(jobs).then(() => {
     if (token !== captureSyncToken) return
-    if (skyHint.value.startsWith('Centrado') || skyHint.value.startsWith('Punto listo')) {
-      skyHint.value = 'Punto listo · revisa Datos / Sellos'
+    if (
+      skyHint.value.startsWith(ui.value.centering) ||
+      skyHint.value.startsWith(ui.value.pointReady)
+    ) {
+      setSkyHint('pointReady')
     }
   })
 }
@@ -844,11 +861,11 @@ function goToCoords() {
   if (!activeTarget.value) {
     stageHint.value = `Apuntando AR ${ra.toFixed(5)}° · Dec ${dec.toFixed(5)}°`
   }
-  skyHint.value = 'Centrado · cargando datos del punto…'
+  setSkyHint('centering')
   drawerOpen.value = true
   sideTab.value = 'info'
   void Promise.all([loadObservationsAt(ra, dec, 90), loadStampsAt(ra, dec)]).then(() => {
-    skyHint.value = 'Punto listo · revisa Datos / Sellos'
+    setSkyHint('pointReady')
   })
 }
 
@@ -868,7 +885,7 @@ function applySurvey() {
 async function focusCutoutOnAtlas(payload: { ra: number; dec: number; fovDeg: number }) {
   const aladin = aladinRef.value
   if (!aladin || status.value !== 'ready') {
-    skyHint.value = 'El atlas aún no está listo'
+    setSkyHint('atlasNotReady')
     return
   }
   const token = ++journeyToken
@@ -882,7 +899,7 @@ async function focusCutoutOnAtlas(payload: { ra: number; dec: number; fovDeg: nu
   aladin.gotoRaDec(payload.ra, payload.dec)
   syncCoords()
   atlasAtLimit.value = targetFov <= FOV_SOFT_LIMIT
-  skyHint.value = `Campo centrado · FOV ${targetFov.toFixed(2)}°`
+  setSkyHint('fieldCentered', `${targetFov.toFixed(2)}°`)
   stage.value = 'hd'
   stageHint.value = 'Contexto óptico del recorte'
   await animateFoV(from, targetFov, 700, token)
@@ -1357,7 +1374,7 @@ function openObsDetail(obs: Record<string, unknown>) {
   }
   detailOpen.value = true
   detailTick.value += 1
-  skyHint.value = `Detalle SPHEREx · ${shortObsId(obs.obs_id)}`
+  setSkyHint('detailPrefix', shortObsId(obs.obs_id))
 }
 
 function openExternal(url: unknown) {
@@ -1461,18 +1478,19 @@ onUnmounted(() => {
         data-tour="atlas"
         :class="{ 'is-pushed': catalogOpen }"
       >
-        <p class="sky__kicker">Atlas SPHEREx · {{ stageLabel }}</p>
-        <h1 class="sky__title">{{ activeTarget?.name || 'Cielo HD' }}</h1>
+        <p class="sky__kicker">{{ ui.kicker }} · {{ stageLabel }}</p>
+        <h1 class="sky__title">{{ activeTarget?.name || ui.defaultTitle }}</h1>
         <p v-if="!catalogOpen" class="sky__skyhint">{{ skyHint }}</p>
       </div>
       <div class="sky__actions">
+        <LanguageToggle compact />
         <button
           type="button"
           class="btn"
           :class="{ 'btn--on': catalogOpen }"
           @click="catalogOpen = !catalogOpen"
         >
-          Objetivos
+          {{ ui.targets }}
         </button>
         <button
           type="button"
@@ -1480,7 +1498,7 @@ onUnmounted(() => {
           :class="{ 'btn--on': drawerOpen }"
           @click="toggleDrawer"
         >
-          Datos
+          {{ ui.data }}
         </button>
         <button
           type="button"
@@ -1488,48 +1506,48 @@ onUnmounted(() => {
           :class="{ 'btn--on': searchOpen }"
           @click="toggleSearch"
         >
-          Buscar
+          {{ ui.search }}
         </button>
-        <button type="button" class="btn" @click="openStampsTab">Sellos</button>
+        <button type="button" class="btn" @click="openStampsTab">{{ ui.stamps }}</button>
         <button
           type="button"
           class="btn"
           :class="{ 'btn--on': shareOpen }"
           @click="toggleShare"
         >
-          Compartir
+          {{ ui.share }}
         </button>
         <button
           type="button"
           class="btn"
           :class="{ 'btn--on': guideOpen || tourActive }"
-          :title="onboardingCopy.openGuide || 'Guía'"
+          :title="onboardingCopy.openGuide || ui.guide"
           @click="toggleGuide"
         >
-          {{ onboardingCopy.openGuide || 'Guía' }}
+          {{ onboardingCopy.openGuide || ui.guide }}
         </button>
         <button
           type="button"
           class="btn btn--gold"
-          title="3D real del sistema solar. Estas estrellas no tienen un modelo de volumen."
+          :title="ui.threeDTitle"
           @click="openIn3d"
         >
           3D
         </button>
-        <button type="button" class="btn btn--ghost" @click="goBack">Salir</button>
+        <button type="button" class="btn btn--ghost" @click="goBack">{{ ui.exit }}</button>
       </div>
     </header>
 
     <div v-if="urlNotice" class="sky__notice" role="status">
       <span>{{ urlNotice }}</span>
-      <button type="button" class="panel__x" aria-label="Cerrar aviso" @click="showUrlNotice(null)">
+      <button type="button" class="panel__x" :aria-label="ui.closeNotice" @click="showUrlNotice(null)">
         ×
       </button>
     </div>
 
     <div v-if="status === 'ready' && searchOpen && !isEmbed" class="sky__search">
       <label>
-        AR
+        RA
         <input
           v-model="raInput"
           autocomplete="off"
@@ -1554,24 +1572,24 @@ onUnmounted(() => {
           <option v-for="s in SURVEYS" :key="s.id" :value="s.id">{{ s.label }}</option>
         </select>
       </label>
-      <button type="button" class="btn btn--gold" @click="goToCoords">Ir al punto</button>
+      <button type="button" class="btn btn--gold" @click="goToCoords">{{ ui.goToPoint }}</button>
       <button type="button" class="btn" @click="loadObservations">
         {{ obsLoading ? '…' : 'SPHEREx' }}
       </button>
-      <button type="button" class="btn btn--ghost" @click="searchOpen = false">Cerrar</button>
+      <button type="button" class="btn btn--ghost" @click="searchOpen = false">{{ ui.close }}</button>
       <p v-if="searchError" class="sky__search-err">{{ searchError }}</p>
     </div>
 
     <div v-if="status === 'ready' && shareOpen && !isEmbed" class="sky__search sky__share">
       <label class="sky__share-field">
-        Enlace a esta vista
+        {{ ui.shareLink }}
         <input ref="shareLinkField" :value="shareUrl" readonly @focus="selectField" />
       </label>
       <button type="button" class="btn btn--gold" @click="copyLink">
-        {{ copyLabel('link', 'Copiar enlace') }}
+        {{ copyLabel('link', ui.copyLink) }}
       </button>
       <label class="sky__share-field">
-        Código embed (iframe)
+        {{ ui.embedCode }}
         <textarea
           ref="embedCodeField"
           :value="embedCode"
@@ -1581,9 +1599,9 @@ onUnmounted(() => {
         />
       </label>
       <button type="button" class="btn" @click="copyEmbed">
-        {{ copyLabel('embed', 'Copiar código embed') }}
+        {{ copyLabel('embed', ui.copyEmbed) }}
       </button>
-      <button type="button" class="btn btn--ghost" @click="shareOpen = false">Cerrar</button>
+      <button type="button" class="btn btn--ghost" @click="shareOpen = false">{{ ui.close }}</button>
     </div>
 
     <aside
@@ -1591,8 +1609,8 @@ onUnmounted(() => {
       class="panel panel--left panel--catalog"
     >
       <div class="panel__head" data-tour="targets">
-        <h2>Objetivos</h2>
-        <button type="button" class="panel__x" @click="catalogOpen = false">Cerrar</button>
+        <h2>{{ ui.targets }}</h2>
+        <button type="button" class="panel__x" @click="catalogOpen = false">{{ ui.close }}</button>
       </div>
       <div class="panel__body panel__body--catalog">
         <button
@@ -1601,24 +1619,24 @@ onUnmounted(() => {
           type="button"
           class="dest"
           :class="{ 'is-on': activeTarget?.id === t.id }"
-          :title="activeTarget?.id === t.id ? 'Clic para deseleccionar' : presetTip(t)"
+          :title="activeTarget?.id === t.id ? ui.deselect : presetTip(t)"
           @click="toggleCatalogTarget(t)"
         >
           <strong>{{ t.name }}</strong>
           <span>{{ presetCue(t) }}</span>
         </button>
-        <p class="dest-group">Campos</p>
+        <p class="dest-group">{{ ui.fields }}</p>
         <button
           v-for="t in surveyPresets"
           :key="t.id"
           type="button"
           class="dest"
           :class="{ 'is-on': activeTarget?.id === t.id }"
-          :title="activeTarget?.id === t.id ? 'Clic para deseleccionar' : presetTip(t)"
+          :title="activeTarget?.id === t.id ? ui.deselect : presetTip(t)"
           @click="toggleCatalogTarget(t)"
         >
           <strong>{{ t.name }}</strong>
-          <span>Campo</span>
+          <span>{{ ui.field }}</span>
         </button>
       </div>
     </aside>
@@ -1638,7 +1656,7 @@ onUnmounted(() => {
             :class="{ 'is-on': sideTab === 'info' }"
             @click="sideTab = 'info'"
           >
-            Info
+            {{ ui.info }}
           </button>
           <button
             type="button"
@@ -1646,45 +1664,45 @@ onUnmounted(() => {
             :class="{ 'is-on': sideTab === 'stamps' }"
             @click="sideTab = 'stamps'"
           >
-            Movimiento
+            {{ ui.motion }}
           </button>
         </div>
-        <button type="button" class="panel__x" @click="drawerOpen = false">Cerrar</button>
+        <button type="button" class="panel__x" @click="drawerOpen = false">{{ ui.close }}</button>
       </div>
 
       <div v-if="sideTab === 'info'" class="panel__body">
         <template v-if="activeTarget">
           <p class="info-name">{{ activeTarget.name }}</p>
           <p class="info-coords">
-            {{ formatRaDec(activeTarget.ra, activeTarget.dec) }} · época {{ activeTarget.epoch }}
+            {{ formatRaDec(activeTarget.ra, activeTarget.dec) }} · {{ ui.epoch }} {{ activeTarget.epoch }}
           </p>
           <p v-if="activeTarget.catalog_ra != null && activeTarget.catalog_dec != null" class="info-coords">
-            Catálogo {{ activeTarget.catalog_epoch }}:
+            {{ ui.catalog }} {{ activeTarget.catalog_epoch }}:
             {{ formatRaDec(activeTarget.catalog_ra, activeTarget.catalog_dec) }}
           </p>
           <p class="info-text"><strong>{{ activeTarget.highlight }}</strong></p>
           <p class="info-text">{{ activeTarget.description }}</p>
         </template>
         <template v-else>
-          <p class="info-name">Campo libre</p>
+          <p class="info-name">{{ ui.freeField }}</p>
           <p class="info-coords">
             {{ formatRaDec(Number(liveRa === '—' ? raInput : liveRa), Number(liveDec === '—' ? decInput : liveDec)) }}
           </p>
-          <p class="info-text">Sin objetivo del catálogo · las capturas siguen el centro del atlas.</p>
+          <p class="info-text">{{ ui.freeFieldBody }}</p>
         </template>
 
-        <p v-if="obsLoading" class="info-meta">Consultando IRSA…</p>
+        <p v-if="obsLoading" class="info-meta">{{ ui.queryingIrsa }}</p>
         <div v-else-if="obsError" class="info-err">
           <p>{{ obsError }}</p>
-          <p class="info-err-hint">No es un fallo del atlas: el archivo SPHEREx (IRSA) está caído o lento.</p>
+          <p class="info-err-hint">{{ ui.irsaDownHint }}</p>
           <div class="info-err-actions">
-            <button type="button" class="btn btn--gold" @click="retryObservations">Reintentar</button>
-            <button type="button" class="btn btn--ghost" @click="openStampsTab">Abrir blink</button>
+            <button type="button" class="btn btn--gold" @click="retryObservations">{{ ui.retry }}</button>
+            <button type="button" class="btn btn--ghost" @click="openStampsTab">{{ ui.openBlink }}</button>
           </div>
         </div>
         <p v-else-if="obsResult" class="info-meta">
-          {{ obsResult.count }} imágenes SPHEREx cerca
-          <template v-if="obsResult.observations?.[0]?.offline"> · respaldo local</template>
+          {{ obsResult.count }} {{ ui.spherexNear }}
+          <template v-if="obsResult.observations?.[0]?.offline"> · {{ ui.localBackup }}</template>
         </p>
 
         <ul v-if="obsPreview.length" class="obs">
@@ -1693,9 +1711,9 @@ onUnmounted(() => {
             <span>{{ bandLabel(obs.energy_bandpassname) }} · {{ mjdToHint(obs.t_min) }}</span>
             <div class="obs__row">
               <button type="button" class="mini mini--gold" title="Cutout real + metadatos" @click="openObsDetail(obs)">
-                Detalle
+                {{ ui.detail }}
               </button>
-              <button type="button" class="mini" @click="useObsTarget(obs)">Ir</button>
+              <button type="button" class="mini" @click="useObsTarget(obs)">{{ ui.go }}</button>
               <button
                 v-if="obs.access_url"
                 type="button"
@@ -1709,19 +1727,19 @@ onUnmounted(() => {
         </ul>
 
         <button type="button" class="btn btn--ghost info-more" @click="openStampsTab">
-          Abrir blink →
+          {{ ui.openBlinkArrow }}
         </button>
       </div>
 
       <div v-else class="panel__body stamps">
         <div class="motion-head" data-tour="motion">
           <p class="motion-head__name" :title="activeTarget?.highlight || ''">
-            {{ activeTarget?.name || 'Movimiento' }}
+            {{ activeTarget?.name || ui.motion }}
           </p>
-          <p class="motion-head__hint">Elige fuente · abre o cierra el blink</p>
+          <p class="motion-head__hint">{{ ui.motionHint }}</p>
         </div>
 
-        <div class="seg" role="tablist" aria-label="Fuente de movimiento">
+        <div class="seg" role="tablist" :aria-label="ui.motionSource">
           <button
             type="button"
             class="seg__btn"
@@ -1745,7 +1763,7 @@ onUnmounted(() => {
         </div>
 
         <template v-if="motionMode === 'spherex'">
-          <p v-if="playerRa == null || playerDec == null" class="info-err">Sin coordenadas.</p>
+          <p v-if="playerRa == null || playerDec == null" class="info-err">{{ ui.noCoords }}</p>
           <div v-else class="motion-actions">
             <button
               type="button"
@@ -1754,19 +1772,19 @@ onUnmounted(() => {
               title="Abre o trae el blink al frente"
               @click="openSpherexFloat"
             >
-              {{ spherexFloatOpen ? 'Traer blink' : 'Abrir blink' }}
+              {{ spherexFloatOpen ? ui.bringBlink : ui.openBlink }}
             </button>
             <button
               v-if="spherexFloatOpen"
               type="button"
               class="action action--soft"
-              title="Cierra la ventana flotante"
+              :title="ui.close"
               @click="spherexFloatOpen = false"
             >
-              Cerrar
+              {{ ui.close }}
             </button>
           </div>
-          <p v-if="spherexFloatOpen" class="motion-status">Blink flotante · el atlas sigue completo</p>
+          <p v-if="spherexFloatOpen" class="motion-status">{{ ui.blinkFloating }}</p>
         </template>
 
         <template v-else>
@@ -1777,7 +1795,7 @@ onUnmounted(() => {
             :class="{ 'is-on': stampMode === 'epochs' }"
             @click="setStampMode('epochs')"
           >
-            Épocas
+            {{ ui.epochs }}
           </button>
           <button
             type="button"
@@ -1785,7 +1803,7 @@ onUnmounted(() => {
             :class="{ 'is-on': stampMode === 'bands' }"
             @click="setStampMode('bands')"
           >
-            Bandas
+            {{ ui.bands }}
           </button>
         </div>
 
@@ -1796,7 +1814,7 @@ onUnmounted(() => {
             :disabled="stamps.length < 2"
             @click="toggleBlink"
           >
-            {{ blinkOn ? 'Stop' : stampMode === 'epochs' ? 'Blink movimiento' : 'Blink bandas' }}
+            {{ blinkOn ? 'Stop' : stampMode === 'epochs' ? ui.blinkMotion : ui.blinkBands }}
           </button>
           <label>
             ms
@@ -1824,7 +1842,7 @@ onUnmounted(() => {
           >PS1</a>
         </div>
 
-        <p v-if="stampLoading" class="info-meta">Cargando…</p>
+        <p v-if="stampLoading" class="info-meta">{{ ui.loadingEllipsis }}</p>
         <p v-else-if="stampError" class="info-err">{{ stampError }}</p>
 
         <div v-if="activeStamp" class="stamp-hero" :class="{ 'is-epoch': stampMode === 'epochs' }">
@@ -1882,13 +1900,13 @@ onUnmounted(() => {
     <!-- Modo embed (?embed=1): solo atlas + reproductor compacto + enlace a la app -->
     <template v-if="status === 'ready' && isEmbed">
       <a class="embed-open" :href="fullAppUrl" target="_blank" rel="noopener noreferrer">
-        Abrir en Planet-X ↗
+        {{ ui.openInApp }}
       </a>
       <div class="embed-player">
-        <strong class="embed-player__title">{{ activeTarget?.name || 'Cielo HD' }}</strong>
+        <strong class="embed-player__title">{{ activeTarget?.name || ui.defaultTitle }}</strong>
         <img v-if="activeStamp" :src="activeStamp.jpegUrl" :alt="activeStamp.label" />
         <p v-else class="embed-player__meta">
-          {{ stampLoading ? 'Cargando épocas…' : stampError || 'Sin épocas disponibles' }}
+          {{ stampLoading ? ui.loadingEpochs : stampError || ui.noEpochs }}
         </p>
         <div class="embed-player__row">
           <button
@@ -1909,14 +1927,14 @@ onUnmounted(() => {
 
     <footer v-if="status === 'ready' && !isEmbed" class="sky__bar">
       <div class="sky__bar-coords">
-        <span>AR {{ liveRa }}°</span>
+        <span>RA {{ liveRa }}°</span>
         <span>Dec {{ liveDec }}°</span>
         <span :class="backendOk ? 'ok' : 'bad'">{{ backendOk ? 'API ok' : 'API…' }}</span>
       </div>
       <div class="sky__bar-zoom">
-        <button type="button" class="zoom-btn" title="Acercar" @click="zoomBy(0.65)">+</button>
+        <button type="button" class="zoom-btn" :title="ui.zoomIn" @click="zoomBy(0.65)">+</button>
         <input v-model.number="zoomSlider" type="range" min="0" max="1000" />
-        <button type="button" class="zoom-btn" title="Alejar" @click="zoomBy(1.45)">−</button>
+        <button type="button" class="zoom-btn" :title="ui.zoomOut" @click="zoomBy(1.45)">−</button>
         <strong>{{ zoomLabel }}</strong>
       </div>
     </footer>
@@ -1957,7 +1975,7 @@ onUnmounted(() => {
       @remount="remountMeasure"
     />
 
-    <div v-if="status === 'loading'" class="sky__overlay">Cargando atlas…</div>
+    <div v-if="status === 'loading'" class="sky__overlay">{{ ui.loadingAtlas }}</div>
     <div v-else-if="status === 'error'" class="sky__overlay">
       <p>{{ errorMessage }}</p>
       <button type="button" class="btn btn--gold" @click="boot">Reintentar</button>
@@ -2063,6 +2081,27 @@ onUnmounted(() => {
   font-size: 0.88rem;
   color: #ffe9b8;
   text-shadow: 0 1px 10px #000;
+}
+
+.sky__actions :deep(.lang-toggle) {
+  display: inline-flex;
+  align-items: center;
+  border: 1px solid rgba(232, 196, 120, 0.45);
+  background: rgba(8, 10, 16, 0.72);
+  color: #f3efe4;
+  padding: 0.45rem 0.7rem;
+  font-size: 0.68rem;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  text-decoration: none;
+  white-space: nowrap;
+}
+
+.sky__actions :deep(.lang-toggle:hover),
+.sky__actions :deep(.lang-toggle:focus-visible) {
+  border-color: rgba(255, 220, 150, 0.9);
+  background: rgba(232, 196, 120, 0.16);
+  color: #fff4d4;
 }
 
 .sky__actions {

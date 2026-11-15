@@ -90,6 +90,72 @@ export interface Messages {
     retry: string
     hint: string
     aladinAria: string
+    ui: {
+      kicker: string
+      defaultTitle: string
+      targets: string
+      data: string
+      search: string
+      stamps: string
+      share: string
+      guide: string
+      exit: string
+      close: string
+      closeNotice: string
+      fields: string
+      field: string
+      deselect: string
+      info: string
+      motion: string
+      freeField: string
+      freeFieldBody: string
+      epoch: string
+      catalog: string
+      queryingIrsa: string
+      irsaDownHint: string
+      retry: string
+      openBlink: string
+      openBlinkArrow: string
+      bringBlink: string
+      blinkFloating: string
+      spherexNear: string
+      localBackup: string
+      detail: string
+      go: string
+      motionHint: string
+      motionSource: string
+      noCoords: string
+      epochs: string
+      bands: string
+      blinkMotion: string
+      blinkBands: string
+      loadingEllipsis: string
+      goToPoint: string
+      shareLink: string
+      copyLink: string
+      embedCode: string
+      copyEmbed: string
+      zoomIn: string
+      zoomOut: string
+      loadingAtlas: string
+      preparing: string
+      slowAtlas: string
+      checkingTiles: string
+      atlasReady: string
+      atlasUnstable: string
+      atlasError: string
+      pointReady: string
+      centering: string
+      atlasNotReady: string
+      fieldCentered: string
+      detailPrefix: string
+      stageFlying: string
+      stageReady: string
+      openInApp: string
+      loadingEpochs: string
+      noEpochs: string
+      threeDTitle: string
+    }
     onboarding: {
       openGuide: string
       skip: string
