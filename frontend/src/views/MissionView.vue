@@ -72,8 +72,17 @@ type StampFrame = {
 type StartView = { ra: number; dec: number; fov: number; target: PresetLocation | null }
 type CopyFeedback = { which: 'link' | 'embed'; ok: boolean }
 
-/** Desplazamiento mínimo (grados) a partir del cual una vista llegada por URL recarga datos. */
+/** Desplazamiento mínimo (grados) a partir del cual una vista llegada por URL o paneo recarga datos. */
 const RELOAD_DISTANCE_DEG = 1 / 60
+/** Espera tras el último paneo antes de anclar capturas al centro del atlas. */
+const CAPTURE_SYNC_DEBOUNCE_MS = 550
+/** Con el blink abierto, más espera para no cancelar cargas IRSA a mitad. */
+const CAPTURE_SYNC_FLOAT_DEBOUNCE_MS = 1200
+/**
+ * Tope del radio para mantener un objetivo del catálogo seleccionado.
+ * No usar fov_deg (surveys de 10–20° dejan el highlight “pegado”).
+ */
+const TARGET_HIGHLIGHT_CAP_DEG = 1.5
 const CUTOUT_SIZE_DEG = 0.08
 /** Radio del cono SIA (arcsec) para buscar imágenes que contengan el objetivo. */
 const OBS_RADIUS_ARCSEC = 90
@@ -161,10 +170,15 @@ const shareLinkField = ref<HTMLInputElement | null>(null)
 const embedCodeField = ref<HTMLTextAreaElement | null>(null)
 
 let coordTimer: ReturnType<typeof setInterval> | null = null
+let captureSyncTimer: ReturnType<typeof setTimeout> | null = null
+/** Último centro vivo visto por el debounce (evita reiniciar el timer en cada poll). */
+let lastCaptureLiveKey = ''
 let noticeTimer: ReturnType<typeof setTimeout> | null = null
 let copyTimer: ReturnType<typeof setTimeout> | null = null
 let journeyToken = 0
 let stampLoadToken = 0
+let obsLoadToken = 0
+let captureSyncToken = 0
 /** true mientras se aplica una vista llegada por URL: no se re-escribe la URL. */
 let syncingFromUrl = false
 
@@ -443,11 +457,21 @@ function startCoordWatch() {
   }, 400)
 }
 
+function cancelCaptureSync() {
+  if (captureSyncTimer) {
+    clearTimeout(captureSyncTimer)
+    captureSyncTimer = null
+  }
+  lastCaptureLiveKey = ''
+  captureSyncToken += 1
+}
+
 function stopCoordWatch() {
   if (coordTimer) {
     clearInterval(coordTimer)
     coordTimer = null
   }
+  cancelCaptureSync()
 }
 
 function syncCoords() {
@@ -462,20 +486,113 @@ function syncCoords() {
     // El dorado del catálogo = “estás en este objetivo”, no “último clic”.
     // Si el centro del atlas se aleja, se apaga el bloque.
     syncActiveTargetHighlight(raN, decN)
+    scheduleCaptureSyncFromLive()
   } catch {
     /* ignore */
   }
+}
+
+/**
+ * Tras panear, ancla stampRa/Dec (y recarga obs/sellos) al centro vivo.
+ * Debounce trailing: solo reinicia el timer cuando el centro vivo cambia
+ * (el poll de syncCoords es más frecuente que el debounce).
+ */
+function scheduleCaptureSyncFromLive() {
+  if (status.value !== 'ready' || stage.value === 'flying' || syncingFromUrl) return
+  const ra = Number(liveRa.value)
+  const dec = Number(liveDec.value)
+  if (!Number.isFinite(ra) || !Number.isFinite(dec)) return
+
+  const liveKey = `${ra.toFixed(5)},${dec.toFixed(5)}`
+  const prevRa = stampRa.value
+  const prevDec = stampDec.value
+  const moved =
+    prevRa == null ||
+    prevDec == null ||
+    angularDistanceDeg(ra, dec, prevRa, prevDec) > RELOAD_DISTANCE_DEG
+
+  if (!moved) {
+    lastCaptureLiveKey = liveKey
+    if (captureSyncTimer) {
+      clearTimeout(captureSyncTimer)
+      captureSyncTimer = null
+    }
+    return
+  }
+
+  if (liveKey === lastCaptureLiveKey) return
+  lastCaptureLiveKey = liveKey
+
+  if (captureSyncTimer) clearTimeout(captureSyncTimer)
+  const waitMs = spherexFloatOpen.value ? CAPTURE_SYNC_FLOAT_DEBOUNCE_MS : CAPTURE_SYNC_DEBOUNCE_MS
+  captureSyncTimer = setTimeout(() => {
+    captureSyncTimer = null
+    applyCaptureSyncFromLive()
+  }, waitMs)
+}
+
+function applyCaptureSyncFromLive() {
+  if (status.value !== 'ready' || stage.value === 'flying' || syncingFromUrl) return
+  const ra = Number(liveRa.value)
+  const dec = Number(liveDec.value)
+  if (!Number.isFinite(ra) || !Number.isFinite(dec)) return
+
+  // Catálogo estático: si el centro ya no coincide con el objetivo, quitar selección.
+  syncActiveTargetHighlight(ra, dec)
+
+  const prevRa = stampRa.value
+  const prevDec = stampDec.value
+  const moved =
+    prevRa == null ||
+    prevDec == null ||
+    angularDistanceDeg(ra, dec, prevRa, prevDec) > RELOAD_DISTANCE_DEG
+  if (!moved) return
+
+  const token = ++captureSyncToken
+  stampRa.value = ra
+  stampDec.value = dec
+  raInput.value = ra.toFixed(6)
+  decInput.value = dec.toFixed(6)
+
+  const jobs: Promise<unknown>[] = []
+  if (!isEmbed.value) jobs.push(loadObservationsAt(ra, dec, OBS_RADIUS_ARCSEC))
+  if (isEmbed.value || motionMode.value === 'wise') jobs.push(loadStampsAt(ra, dec))
+  if (!jobs.length) return
+
+  void Promise.all(jobs).then(() => {
+    if (token !== captureSyncToken) return
+    if (skyHint.value.startsWith('Centrado') || skyHint.value.startsWith('Punto listo')) {
+      skyHint.value = 'Punto listo · revisa Datos / Sellos'
+    }
+  })
+}
+
+/** Radio de highlight del catálogo: radius del preset, acotado (ignora fov_deg). */
+function targetHighlightLimitDeg(t: PresetLocation): number {
+  return Math.min(Math.max(t.radius_deg || 0, 0.4), TARGET_HIGHLIGHT_CAP_DEG)
 }
 
 /** Apaga el preset activo si el cielo ya no apunta a ese objeto. */
 function syncActiveTargetHighlight(ra: number, dec: number) {
   const t = activeTarget.value
   if (!t || stage.value === 'flying') return
-  const limit = Math.max(t.radius_deg || 0, t.fov_deg || 0, 0.4)
-  if (angularDistanceDeg(ra, dec, t.ra, t.dec) <= limit) return
+  if (angularDistanceDeg(ra, dec, t.ra, t.dec) <= targetHighlightLimitDeg(t)) return
+  clearActiveTarget(ra, dec)
+}
+
+/** Deselección explícita del objetivo del catálogo estático. */
+function clearActiveTarget(ra?: number, dec?: number) {
+  const t = activeTarget.value
+  if (!t) return
   activeTarget.value = null
-  if (stageHint.value === t.name || stageHint.value.startsWith(t.name)) {
-    stageHint.value = `AR ${ra.toFixed(5)}° · Dec ${dec.toFixed(5)}°`
+  const raN = ra ?? Number(liveRa.value)
+  const decN = dec ?? Number(liveDec.value)
+  if (
+    Number.isFinite(raN) &&
+    Number.isFinite(decN) &&
+    (stageHint.value === t.name || stageHint.value.startsWith(t.name))
+  ) {
+    stageHint.value = `AR ${raN.toFixed(5)}° · Dec ${decN.toFixed(5)}°`
   }
 }
 
@@ -573,6 +690,12 @@ function goToCoords() {
   searchError.value = null
   raInput.value = ra.toFixed(6)
   decInput.value = dec.toFixed(6)
+  // Ancla el punto de captura ya: evita que el debounce de paneo dispare otra carga.
+  cancelCaptureSync()
+  stampRa.value = ra
+  stampDec.value = dec
+  // Coord manual distinta del catálogo → quitar objetivo seleccionado.
+  syncActiveTargetHighlight(ra, dec)
 
   // FOV útil para ver el campo (si está muy abierto parece “cualquier cielo”).
   if (!Number.isFinite(Number(fovInput.value)) || Number(fovInput.value) > 2) {
@@ -584,7 +707,9 @@ function goToCoords() {
   refreshAladinView(aladin, host.value)
   syncCoords()
   stage.value = 'hd'
-  stageHint.value = `Apuntando AR ${ra.toFixed(5)}° · Dec ${dec.toFixed(5)}°`
+  if (!activeTarget.value) {
+    stageHint.value = `Apuntando AR ${ra.toFixed(5)}° · Dec ${dec.toFixed(5)}°`
+  }
   skyHint.value = 'Centrado · cargando datos del punto…'
   drawerOpen.value = true
   sideTab.value = 'info'
@@ -615,6 +740,7 @@ async function focusCutoutOnAtlas(payload: { ra: number; dec: number; fovDeg: nu
   const token = ++journeyToken
   const targetFov = Math.min(FOV_MAX, Math.max(FOV_MIN, payload.fovDeg))
   const from = Math.min(FOV_MAX, Math.max(FOV_MIN, Number(fovInput.value) || 2))
+  cancelCaptureSync()
   raInput.value = payload.ra.toFixed(6)
   decInput.value = payload.dec.toFixed(6)
   stampRa.value = payload.ra
@@ -649,18 +775,22 @@ async function pingBackend() {
 }
 
 async function loadObservationsAt(ra: number, dec: number, radius = 90) {
+  const token = ++obsLoadToken
   obsLoading.value = true
   obsError.value = null
   let lastError: unknown = null
   for (let attempt = 1; attempt <= 3; attempt++) {
+    if (token !== obsLoadToken) return
     try {
-      obsResult.value = await fetchObservations({
+      const result = await fetchObservations({
         ra,
         dec,
         radius,
         collection: 'spherex_dr1',
         cutout_size: CUTOUT_SIZE_DEG,
       })
+      if (token !== obsLoadToken) return
+      obsResult.value = result
       obsLoading.value = false
       return
     } catch (error) {
@@ -668,6 +798,7 @@ async function loadObservationsAt(ra: number, dec: number, radius = 90) {
       if (attempt < 3) await sleep(900 * attempt)
     }
   }
+  if (token !== obsLoadToken) return
   obsError.value =
     lastError instanceof Error
       ? `${lastError.message} · IRSA a veces satura; reintenta.`
@@ -828,6 +959,15 @@ async function loadPresetCatalog() {
   }
 }
 
+/** Clic en objetivo ya activo → deseleccionar; si no, visitar el preset. */
+function toggleCatalogTarget(target: PresetLocation) {
+  if (activeTarget.value?.id === target.id) {
+    clearActiveTarget()
+    return
+  }
+  void visitPreset(target)
+}
+
 async function visitPreset(
   target: PresetLocation,
   { fromUrl = false, fov }: { fromUrl?: boolean; fov?: number } = {},
@@ -858,6 +998,7 @@ async function visitPreset(
 
   stage.value = 'flying'
   stageHint.value = target.name
+  cancelCaptureSync()
   stampRa.value = target.ra
   stampDec.value = target.dec
   motionRadius.value = OBS_RADIUS_ARCSEC
@@ -1118,6 +1259,7 @@ onMounted(() => {
 
 onUnmounted(() => {
   journeyToken += 1
+  captureSyncToken += 1
   stopCoordWatch()
   stopBlink()
   if (noticeTimer) clearTimeout(noticeTimer)
@@ -1276,8 +1418,8 @@ onUnmounted(() => {
           type="button"
           class="dest"
           :class="{ 'is-on': activeTarget?.id === t.id }"
-          :title="presetTip(t)"
-          @click="visitPreset(t)"
+          :title="activeTarget?.id === t.id ? 'Clic para deseleccionar' : presetTip(t)"
+          @click="toggleCatalogTarget(t)"
         >
           <strong>{{ t.name }}</strong>
           <span>{{ presetCue(t) }}</span>
@@ -1289,8 +1431,8 @@ onUnmounted(() => {
           type="button"
           class="dest"
           :class="{ 'is-on': activeTarget?.id === t.id }"
-          :title="presetTip(t)"
-          @click="visitPreset(t)"
+          :title="activeTarget?.id === t.id ? 'Clic para deseleccionar' : presetTip(t)"
+          @click="toggleCatalogTarget(t)"
         >
           <strong>{{ t.name }}</strong>
           <span>Campo</span>
@@ -1333,6 +1475,13 @@ onUnmounted(() => {
           </p>
           <p class="info-text"><strong>{{ activeTarget.highlight }}</strong></p>
           <p class="info-text">{{ activeTarget.description }}</p>
+        </template>
+        <template v-else>
+          <p class="info-name">Campo libre</p>
+          <p class="info-coords">
+            {{ formatRaDec(Number(liveRa === '—' ? raInput : liveRa), Number(liveDec === '—' ? decInput : liveDec)) }}
+          </p>
+          <p class="info-text">Sin objetivo del catálogo · las capturas siguen el centro del atlas.</p>
         </template>
 
         <p v-if="obsLoading" class="info-meta">Consultando IRSA…</p>
