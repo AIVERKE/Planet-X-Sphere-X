@@ -10,15 +10,17 @@ export function apiUrl(path: string): string {
   return `${BASE_URL}${normalized}`
 }
 
-export async function httpGet<T>(path: string, init?: RequestInit): Promise<T> {
+type HttpGetOptions = RequestInit & { timeoutMs?: number }
+
+export async function httpGet<T>(path: string, options?: HttpGetOptions): Promise<T> {
   const controller = new AbortController()
-  const timeoutMs = 55_000
+  const { timeoutMs = 55_000, ...init } = options ?? {}
   const timer = window.setTimeout(() => controller.abort(), timeoutMs)
 
   try {
     const response = await fetch(apiUrl(path), {
       ...init,
-      signal: init?.signal ?? controller.signal,
+      signal: init.signal ?? controller.signal,
       headers: {
         Accept: 'application/json',
         ...init?.headers,

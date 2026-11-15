@@ -118,6 +118,27 @@ Con `group_by_band=true` se devuelve `bands: {"SPHEREx-D1": [...], ...}` en luga
 
 Códigos de error: `404` si no hay imágenes en la posición o ninguna en la ventana temporal; `422` si los parámetros no son válidos (incluido `t_start > t_end`); `503` si IRSA no responde o falla.
 
+`GET /api/observations` sigue sin descargar píxeles. El reproductor usa los dos endpoints siguientes.
+
+### 6. Fotogramas y PNG (`GET /api/observations/frames`, `GET /api/cutouts/png`)
+
+`/api/observations/frames` repite la consulta SIA y devuelve las épocas de **un solo detector**, ordenadas por `t_min`. Si no se pasa `band`, elige el detector con más épocas (empate: D1 antes que D2). Hay un tope de 16 épocas repartidas en el tiempo (`matched` es el total del detector, `returned` las que entran en la respuesta).
+
+Cada fotograma trae `obs_id`, `t_min`, `t_max`, `band` (`D1`…`D6`) y `png_url`, una ruta relativa `/api/cutouts/png?...`. Esa ruta ya incluye `vmin` y `vmax`: el backend reproyecta los recortes a una grilla común (norte arriba, centrada en el RA/Dec pedido, 192×192) y calcula el zscale **una vez** sobre la mediana del conjunto.
+
+`/api/cutouts/png` descarga el FITS desde IRSA, lee solo la extensión `IMAGE` (el WCS espectral `W` no se usa para alinear) y responde `image/png`. El navegador no recibe el FITS.
+
+| Parámetro | En `frames` | En `png` | Notas |
+|-----------|-------------|----------|--------|
+| `ra`, `dec`, `radius`, `t_start`, `t_end`, `collection`, `cutout_size` | sí | `ra`, `dec`, `size` | Mismos límites que `/api/observations`. `size` es el lado en grados. |
+| `band` | opcional | — | `D1`…`D6` o `SPHEREx-D1`…`D6` |
+| `url` | — | obligatorio | Tiene que ser `https://irsa.ipac.caltech.edu/...`. Cualquier otro host, `http` o un redirect fuera de IRSA responde **400** y no se llama a la red. |
+| `vmin`, `vmax` | en la respuesta | opcionales | Escala compartida. Si faltan, el PNG usa el zscale de ese cuadro solo. |
+
+Los FITS descargados y los PNG quedan en `backend/.cache/cutouts/` (no se versiona). La segunda reproducción del mismo objetivo no vuelve a pedir el archivo a IRSA.
+
+Errores: `400` URL fuera de IRSA; `404` sin imágenes o sin épocas en ese detector; `422` parámetros inválidos o FITS sin imagen científica; `503` si IRSA no responde.
+
 ### Tests
 
 ```powershell
@@ -125,7 +146,7 @@ pip install -r requirements-dev.txt
 pytest -q
 ```
 
-Los tests simulan `Irsa.query_sia`, por lo que no necesitan red.
+Los tests simulan `Irsa.query_sia` y las descargas de cutouts, por lo que no necesitan red.
 
 ## Frontend
 
