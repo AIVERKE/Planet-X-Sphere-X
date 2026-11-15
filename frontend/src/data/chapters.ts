@@ -19,7 +19,7 @@ export const chapters: Chapter[] = [
     copyStart: 0.32,
     copyEnd: 0.48,
     title: 'El mundo bajo las nubes',
-    body: 'Cuatro rombos quedan anclados al globo. Cada uno es un lugar real, proyectado desde la esfera hasta la pantalla.',
+    body: 'La Tierra gira bajo las nubes. Desde aquí el planeta deja de ser paisaje y se vuelve un cuerpo completo en el vacío.',
   },
   {
     id: 'ascenso',

@@ -6,6 +6,18 @@
   --font-outfit: 'Outfit', system-ui, sans-serif;
 }
 
+/* Atlas gold accents — shared with MissionView for a coherent HUD */
+html.is-explorer {
+  --hud-gold: #e8c478;
+  --hud-gold-bright: #ffe9b8;
+  --hud-gold-text: #fff8e8;
+  --hud-gold-border: rgba(232, 196, 120, 0.55);
+  --hud-gold-border-strong: rgba(232, 196, 120, 0.75);
+  --hud-gold-fill: rgba(232, 196, 120, 0.14);
+  --hud-gold-glow: rgba(232, 196, 120, 0.28);
+  --hud-panel-bg: rgba(5, 7, 12, 0.72);
+}
+
 html.is-explorer,
 html.is-explorer body,
 html.is-explorer #app {
@@ -25,13 +37,16 @@ html.is-look-locked body {
 }
 
 html.is-explorer body,
-.explorer-root {
+.explorer-root,
+.about-root {
   font-family: var(--font-outfit);
 }
 
 /* Reset native/Vuetify button chrome inside the immersive HUD */
 .explorer-root button,
-.explorer-root input {
+.explorer-root input,
+.about-root button,
+.about-root input {
   appearance: none;
   -webkit-appearance: none;
   background: transparent;
@@ -40,33 +55,46 @@ html.is-explorer body,
   box-shadow: none;
   color: inherit;
   font: inherit;
+  outline: none;
+}
+
+.explorer-root button:focus,
+.explorer-root button:focus-visible,
+.explorer-root input:focus-visible,
+.about-root button:focus,
+.about-root button:focus-visible,
+.about-root input:focus-visible {
+  outline: none;
+  box-shadow: none;
+  border: 0;
 }
 
 .explorer-root button:focus-visible,
-.explorer-root input:focus-visible {
-  outline: 1px solid rgba(255, 255, 255, 0.55);
-  outline-offset: 3px;
+.about-root button:focus-visible {
+  color: #ffffff;
+  text-decoration: underline;
+  text-underline-offset: 4px;
 }
 
 .hud-text {
-  color: #f4f7fb;
+  color: #fbfcfe;
   text-shadow:
-    0 1px 2px rgba(0, 0, 0, 0.85),
-    0 0 18px rgba(0, 0, 0, 0.45);
+    0 1px 3px rgba(0, 0, 0, 0.95),
+    0 0 20px rgba(0, 0, 0, 0.55);
 }
 
 .hud-text-muted {
-  color: rgba(244, 247, 251, 0.72);
+  color: rgba(251, 252, 254, 0.92);
   text-shadow:
-    0 1px 2px rgba(0, 0, 0, 0.85),
-    0 0 14px rgba(0, 0, 0, 0.4);
+    0 1px 3px rgba(0, 0, 0, 0.95),
+    0 0 16px rgba(0, 0, 0, 0.5);
 }
 
 .hud-link {
-  color: rgba(244, 247, 251, 0.78);
+  color: rgba(251, 252, 254, 0.94);
   text-shadow:
-    0 1px 2px rgba(0, 0, 0, 0.85),
-    0 0 14px rgba(0, 0, 0, 0.4);
+    0 1px 3px rgba(0, 0, 0, 0.95),
+    0 0 16px rgba(0, 0, 0, 0.5);
   transition: color 160ms ease, opacity 160ms ease;
 }
 
@@ -86,6 +114,129 @@ html.is-explorer body,
 .hud-underline.is-active,
 .hud-underline:hover {
   background-size: 100% 1px;
+}
+
+.hud-kicker-gold {
+  color: var(--hud-gold-bright);
+  text-shadow:
+    0 1px 3px rgba(0, 0, 0, 0.95),
+    0 0 18px var(--hud-gold-glow);
+}
+
+.hud-text-gold {
+  color: var(--hud-gold-text);
+  text-shadow:
+    0 1px 3px rgba(0, 0, 0, 0.95),
+    0 0 20px var(--hud-gold-glow);
+}
+
+.hud-link-gold {
+  color: var(--hud-gold-bright);
+  text-shadow:
+    0 1px 3px rgba(0, 0, 0, 0.95),
+    0 0 16px var(--hud-gold-glow);
+}
+
+.hud-link-gold:hover,
+.hud-link-gold.is-active {
+  color: #fff4d4;
+}
+
+.hud-underline-gold {
+  background-image: linear-gradient(var(--hud-gold), var(--hud-gold));
+}
+
+.explorer-root .hud-panel {
+  border: 1px solid var(--hud-gold-border);
+  border-radius: 0.85rem;
+  background:
+    linear-gradient(160deg, rgba(232, 196, 120, 0.1), transparent 42%),
+    var(--hud-panel-bg);
+  backdrop-filter: blur(16px);
+  /* backdrop-filter clips to the box; keep padding visible when content scrolls */
+  overflow: visible;
+  box-shadow:
+    0 0 0 1px rgba(255, 255, 255, 0.04) inset,
+    0 0 28px rgba(232, 196, 120, 0.12),
+    0 14px 40px rgba(0, 0, 0, 0.35);
+}
+
+.explorer-root .hud-panel.about-copy-panel,
+.explorer-root .about-copy-panel.hud-panel {
+  overflow-y: auto;
+  overflow-x: hidden;
+}
+
+.explorer-root .hud-panel--soft {
+  border-color: rgba(232, 196, 120, 0.32);
+  box-shadow:
+    0 0 0 1px rgba(255, 255, 255, 0.03) inset,
+    0 10px 32px rgba(0, 0, 0, 0.28);
+}
+
+.explorer-root .hud-btn-gold {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 100%;
+  padding: 0.75rem 1rem;
+  border: 1px solid var(--hud-gold-border-strong);
+  background: var(--hud-gold-fill);
+  color: var(--hud-gold-bright);
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+  text-shadow: 0 1px 8px rgba(0, 0, 0, 0.7);
+  transition:
+    border-color 160ms ease,
+    background-color 160ms ease,
+    color 160ms ease,
+    box-shadow 160ms ease,
+    transform 160ms ease;
+}
+
+.explorer-root .hud-btn-gold:hover,
+.explorer-root .hud-btn-gold:focus-visible {
+  border-color: rgba(255, 220, 150, 0.95);
+  background: rgba(232, 196, 120, 0.22);
+  color: #fff4d4;
+  box-shadow: 0 0 24px var(--hud-gold-glow);
+  transform: translateY(-1px);
+  text-decoration: none;
+}
+
+.explorer-root .hud-input-gold {
+  border: 0;
+  border-bottom: 1px solid rgba(232, 196, 120, 0.45);
+  background: transparent;
+  transition: border-color 160ms ease, box-shadow 160ms ease;
+}
+
+.explorer-root .hud-input-gold:focus,
+.explorer-root .hud-input-gold:focus-visible {
+  border: 0;
+  border-bottom: 1px solid var(--hud-gold-bright);
+  box-shadow: 0 1px 0 0 rgba(232, 196, 120, 0.35);
+  outline: none;
+}
+
+.explorer-root .hud-list-item.is-active {
+  border-left: 2px solid var(--hud-gold);
+  padding-left: 0.65rem;
+  color: var(--hud-gold-text);
+}
+
+.explorer-root .hud-meter {
+  background: rgba(255, 255, 255, 0.14);
+}
+
+.explorer-root .hud-meter__fill {
+  background: linear-gradient(90deg, rgba(232, 196, 120, 0.55), var(--hud-gold-bright));
+  box-shadow: 0 0 10px rgba(232, 196, 120, 0.35);
+}
+
+.explorer-root .hud-diamond {
+  border-color: var(--hud-gold-border-strong);
+  box-shadow: 0 0 14px rgba(232, 196, 120, 0.35);
 }
 
 .explorer-vignette {

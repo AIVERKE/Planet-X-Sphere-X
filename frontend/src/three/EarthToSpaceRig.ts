@@ -4,7 +4,6 @@ import {
   DirectionalLight,
   Group,
   Mesh,
-  Object3D,
   Scene,
   ShaderMaterial,
   Vector3,
@@ -13,9 +12,7 @@ import {
   type WebGLRenderer,
 } from 'three'
 import type { CameraMode } from '@/types/explorer'
-import { planets, visualRadiusOf } from '@/data/planets'
-import { worldMarkers } from '@/data/worldMarkers'
-import { latLonToVector } from '@/three/latLon'
+import { planets } from '@/data/planets'
 import { createEarthGlobe } from '@/three/scene/EarthGlobe'
 import { createPlanetBody } from '@/three/scene/PlanetBody'
 import { loadMilkyWayBackground, type SpaceBackground } from '@/three/scene/Starfield'
@@ -64,12 +61,13 @@ export function createEarthToSpaceRig() {
     if (!earthData) return
 
     const earth = createEarthGlobe(earthData)
+    // ~30 % de vuelta: evita empezar de cara al océano vacío.
+    earth.group.rotation.y = Math.PI * 2 * 0.3
     earth.group.visible = false
     scene.add(earth.group)
     planetGroups.set(earthData.id, earth.group)
     planetMaterials.push(earth.material)
     bindHotspots(earth.group, earthData.hotspots.map((hotspot) => hotspot.id))
-    bindWorldMarkers(earth.group, visualRadiusOf(earthData))
 
     for (const planet of planets) {
       if (planet.id === 'earth') continue
@@ -136,9 +134,16 @@ export function createEarthToSpaceRig() {
     renderer: WebGLRenderer,
     camera: Camera,
     cameraMode: CameraMode,
+    visualOverride: number | null = null,
   ) {
     const inLook = cameraMode === 'look'
-    const visual = inLook ? 0 : cameraMode === 'scroll' ? progress : Math.max(progress, 0.88)
+    const visual = inLook
+      ? 0
+      : visualOverride != null
+        ? visualOverride
+        : cameraMode === 'scroll'
+          ? progress
+          : Math.max(progress, 0.88)
 
     clear.copy(space)
     renderer.setClearColor(clear, 1)
@@ -220,16 +225,5 @@ function bindHotspots(group: Group, ids: string[]) {
     if (!anchor) continue
     const target = new Vector3()
     bindProjectedPoint(id, () => anchor.getWorldPosition(target))
-  }
-}
-
-function bindWorldMarkers(group: Group, radius: number) {
-  for (const marker of worldMarkers) {
-    const anchor = new Object3D()
-    anchor.name = marker.id
-    anchor.position.copy(latLonToVector(marker.lat, marker.lon, radius * 1.02))
-    group.add(anchor)
-    const target = new Vector3()
-    bindProjectedPoint(marker.id, () => anchor.getWorldPosition(target))
   }
 }

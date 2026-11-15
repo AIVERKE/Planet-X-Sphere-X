@@ -11,9 +11,9 @@ defineProps<{ gases: AtmosphereGas[] }>()
         <span class="hud-text-muted">{{ gas.gas }}</span>
         <span class="hud-text">{{ Math.round(gas.ratio * 100) }}%</span>
       </div>
-      <div class="h-px bg-white/20">
+      <div class="hud-meter h-px">
         <div
-          class="h-px bg-white/85 transition-all duration-700"
+          class="hud-meter__fill h-px transition-all duration-700"
           :style="{ width: `${gas.ratio * 100}%` }"
         />
       </div>
