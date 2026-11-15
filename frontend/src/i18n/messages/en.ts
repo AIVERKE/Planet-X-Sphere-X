@@ -305,6 +305,12 @@ export const en: Messages = {
       sky: 'In the sky',
       yard: 'In the yard',
     },
+    orb: {
+      nebula: 'Animation of an emission nebula: a gas cloud with filaments, dark gaps and stars inside',
+      ring: 'Animation of a planetary nebula: a ring-shaped shell of gas with a star at its center',
+      galaxy: 'Animation of a spiral galaxy: two bluish arms and a yellowish core',
+      jupiter: 'Animation of Jupiter: a banded planet with the Great Red Spot',
+    },
   },
   routes: {
     explorer: 'Explore',

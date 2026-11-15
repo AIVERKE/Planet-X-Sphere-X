@@ -122,6 +122,7 @@ export interface Messages {
     identify: string
     traps: string
     rows: Record<'sky' | 'yard', string>
+    orb: Record<'nebula' | 'ring' | 'galaxy' | 'jupiter', string>
   }
   routes: {
     explorer: string

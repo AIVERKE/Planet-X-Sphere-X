@@ -23,6 +23,9 @@ function entries(row: CatalogRow) {
   return SKY_CATALOG.filter((item) => item.row === row)
 }
 
+// Solo las filas con entradas: 'yard' queda vacía hasta que se agreguen objetos del patio.
+const rows = CATALOG_ROWS.filter((row) => entries(row).length > 0)
+
 function open(entry: CatalogEntry) {
   selectedId.value = selectedId.value === entry.id ? null : entry.id
 }
@@ -80,7 +83,7 @@ onUnmounted(() => {
       <p class="catalog__lead">{{ m.catalog.lead }}</p>
 
       <section
-        v-for="row in CATALOG_ROWS"
+        v-for="row in rows"
         :key="row"
         class="catalog__row"
         :aria-label="m.catalog.rows[row]"

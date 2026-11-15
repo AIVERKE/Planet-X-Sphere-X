@@ -1,6 +1,6 @@
 export type CatalogRow = 'sky' | 'yard'
 
-export type CatalogShape = 'nebula' | 'ring' | 'galaxy' | 'jupiter' | 'craft'
+export type CatalogShape = 'nebula' | 'ring' | 'galaxy' | 'jupiter'
 
 export interface CatalogCopy {
   name: string
@@ -123,32 +123,6 @@ export const SKY_CATALOG: CatalogEntry[] = [
       traps: [
         'A star twinkles and has no escort. If the dots do not move over days, they are background stars.',
         'A phone zoom does not resolve the belts. A huge candy-colored storm is usually a stretch.',
-      ],
-    },
-  },
-  {
-    id: 'satellite',
-    row: 'yard',
-    shape: 'craft',
-    colors: ['#d5deea', '#7f93a8', '#f7f1df'],
-    es: {
-      name: 'Satélite',
-      blurb: 'Un punto firme que cruza y se apaga.',
-      far: 'De lejos no se ve esta forma: se ve un punto sin titilar que cruza el cielo en pocos minutos y desaparece al entrar en sombra.',
-      identify: 'Línea recta, velocidad pareja, sin cola. A veces un destello corto cuando gira un panel.',
-      traps: [
-        'Una estrella fugaz dura menos de un segundo.',
-        'Varios puntos iguales en fila son un tren de satélites, no un cometa.',
-      ],
-    },
-    en: {
-      name: 'Satellite',
-      blurb: 'A steady point that crosses and winks out.',
-      far: 'From afar you do not see this shape: you see a point with no twinkle that crosses in a few minutes and vanishes in shadow.',
-      identify: 'A straight line, even speed, no tail. Sometimes a short flare as a panel turns.',
-      traps: [
-        'A meteor lasts under a second.',
-        'Several equal dots in a row are a satellite train, not a comet.',
       ],
     },
   },
