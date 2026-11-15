@@ -136,7 +136,7 @@ const activeTarget = ref<PresetLocation | null>(
 const officialPresets = computed(() => presets.value.filter((p) => p.category === 'official_test'))
 const surveyPresets = computed(() => presets.value.filter((p) => p.category === 'survey_field'))
 const stage = ref<ViewStage>('idle')
-const stageHint = ref('Elige una nebulosa · el cielo es el protagonista')
+const stageHint = ref('')
 
 const catalogOpen = ref(true)
 const drawerOpen = ref(true)
@@ -182,6 +182,20 @@ function setSkyHint(
 ) {
   const base = i18nMessages.value.mission.ui[key]
   skyHint.value = detail ? `${base}${detail}` : base
+}
+
+function fmtUi(template: string, vars: Record<string, string | number>) {
+  return Object.entries(vars).reduce(
+    (text, [key, value]) => text.replaceAll(`{${key}}`, String(value)),
+    template,
+  )
+}
+
+function pointingHint(ra: number, dec: number) {
+  return fmtUi(ui.value.pointingAt, {
+    ra: ra.toFixed(5),
+    dec: dec.toFixed(5),
+  })
 }
 
 async function prepareOnboardingStep(id: MissionTourStepId) {
@@ -296,13 +310,11 @@ function isIrsaObsOutage(error: unknown): boolean {
 }
 
 function friendlyObsError(error: unknown): string {
-  if (isIrsaObsOutage(error)) {
-    return 'IRSA no responde ahora (proxy/SIA). El atlas sigue; prueba el blink o reintenta en un momento.'
-  }
+  if (isIrsaObsOutage(error)) return ui.value.irsaBusy
   if (error instanceof Error && error.message.includes('HTTP 404')) {
-    return 'No hay capturas SPHEREx cerca de este punto.'
+    return ui.value.noCapturesNear
   }
-  return 'No se pudieron cargar las observaciones SPHEREx.'
+  return ui.value.obsLoadFailed
 }
 
 const obsPreview = computed(() => (obsResult.value?.observations ?? []).slice(0, 5))
@@ -365,7 +377,7 @@ const embedCode = computed(() => {
   const src = absoluteHref({ ...route.query, embed: '1' })
     .replace(/&/g, '&amp;')
     .replace(/"/g, '&quot;')
-  return `<iframe src="${src}" width="800" height="500" style="border:0" loading="lazy" allow="clipboard-write" title="Planet-X · Atlas SPHEREx"></iframe>`
+  return `<iframe src="${src}" width="800" height="500" style="border:0" loading="lazy" allow="clipboard-write" title="SCOUT · SPHEREx Atlas"></iframe>`
 })
 
 function roundFov(fov: number): number {
@@ -488,7 +500,7 @@ async function boot() {
     const startHips = await pickStartHips()
     esaReachable = startHips === 'esa-dss'
     if (!startHips) {
-      throw new Error('El mapa del cielo no respondió. Pulsa Reintentar.')
+      throw new Error(ui.value.skyMapFailed)
     }
     surveyId.value = startHips
     const hipsUrl = LOCAL_HIPS[startHips].url
@@ -539,7 +551,7 @@ async function boot() {
     stage.value = 'hd'
     activeTarget.value = start.target
     stageHint.value =
-      start.target?.name ?? `Apuntando AR ${start.ra.toFixed(5)}° · Dec ${start.dec.toFixed(5)}°`
+      start.target?.name ?? pointingHint(start.ra, start.dec)
     syncCoords()
     measureSky()
     startCoordWatch()
@@ -555,7 +567,7 @@ async function boot() {
   } catch (error) {
     status.value = 'error'
     errorMessage.value =
-      error instanceof Error ? error.message : 'No se pudo cargar Aladin Lite'
+      error instanceof Error ? error.message : ui.value.aladinFallback
     setSkyHint('atlasError')
   } finally {
     window.clearTimeout(slow)
@@ -796,9 +808,9 @@ const footprintLabel = computed(() => {
     ra != null && dec != null
       ? ` · ${ra.toFixed(3)}° ${dec >= 0 ? '+' : ''}${dec.toFixed(3)}°`
       : ''
-  if (motionMode.value === 'wise') return `Recorte WISE${coord}`
-  if (spherexFloatOpen.value) return `Recorte blink${coord}`
-  return `Recorte SPHEREx${coord}`
+  if (motionMode.value === 'wise') return `${ui.value.cutoutWise}${coord}`
+  if (spherexFloatOpen.value) return `${ui.value.cutoutBlink}${coord}`
+  return `${ui.value.cutoutSpherex}${coord}`
 })
 
 /** El centro del atlas y el recorte de satélite son el mismo punto (±30″). */
@@ -829,23 +841,22 @@ const footprintVisible = computed(
 function goToCoords() {
   const aladin = aladinRef.value
   if (!aladin) {
-    searchError.value = 'El atlas aún no está listo'
+    searchError.value = ui.value.atlasNotReady
     return
   }
 
   const ra = parseCoord(raInput.value, 'ra')
   const dec = parseCoord(decInput.value, 'dec')
   if (ra == null || dec == null) {
-    searchError.value =
-      'Coords inválidas. Usa grados (268.33975 / 3.58428) o sexagesimal (17h53m21.5s / +03d35m03s)'
+    searchError.value = ui.value.invalidCoords
     return
   }
   if (!isValidRa(ra)) {
-    searchError.value = 'AR debe estar entre 0 y 360° (o 0h y 24h)'
+    searchError.value = ui.value.raRange
     return
   }
   if (!isValidDec(dec)) {
-    searchError.value = 'Dec debe estar entre -90 y 90'
+    searchError.value = ui.value.decRange
     return
   }
 
@@ -870,7 +881,7 @@ function goToCoords() {
   syncCoords()
   stage.value = 'hd'
   if (!activeTarget.value) {
-    stageHint.value = `Apuntando AR ${ra.toFixed(5)}° · Dec ${dec.toFixed(5)}°`
+    stageHint.value = pointingHint(ra, dec)
   }
   setSkyHint('centering')
   drawerOpen.value = true
@@ -912,7 +923,7 @@ async function focusCutoutOnAtlas(payload: { ra: number; dec: number; fovDeg: nu
   atlasAtLimit.value = targetFov <= FOV_SOFT_LIMIT
   setSkyHint('fieldCentered', `${targetFov.toFixed(2)}°`)
   stage.value = 'hd'
-  stageHint.value = 'Contexto óptico del recorte'
+  stageHint.value = ui.value.opticalContext
   await animateFoV(from, targetFov, 700, token)
   if (token !== journeyToken) return
   if (spherexFloatOpen.value) {
@@ -985,7 +996,7 @@ async function loadObservations() {
     parseCoord(liveDec.value === '—' ? decInput.value : liveDec.value, 'dec') ??
     parseCoord(decInput.value, 'dec')
   if (ra == null || dec == null) {
-    searchError.value = 'No hay coordenadas válidas para consultar'
+    searchError.value = ui.value.noValidCoords
     searchOpen.value = true
     return
   }
@@ -1050,8 +1061,8 @@ async function loadStampsAt(ra: number, dec: number, mode: StampMode = stampMode
       error instanceof Error
         ? error.message
         : mode === 'epochs'
-          ? 'No se pudieron cargar épocas WISE (WiseView)'
-          : 'No se pudieron cargar sellos PanSTARRS'
+          ? ui.value.wiseEpochsFailed
+          : ui.value.panstarrsFailed
   } finally {
     if (token === stampLoadToken) stampLoading.value = false
   }
@@ -1140,9 +1151,9 @@ function presetTip(t: PresetLocation): string {
 }
 
 function presetCue(preset: PresetLocation): string {
-  if (preset.object_type === 'variable_star') return 'Brillo'
-  if (preset.category === 'official_test') return 'Movimiento'
-  return 'Campo'
+  if (preset.object_type === 'variable_star') return ui.value.brightnessCue
+  if (preset.category === 'official_test') return ui.value.motionCue
+  return ui.value.fieldLabel
 }
 
 async function loadPresetCatalog() {
@@ -1288,7 +1299,7 @@ async function applyQueryToAtlas(query: LocationQuery) {
       setAladinFoV(aladin, fov)
     }
     stage.value = 'hd'
-    stageHint.value = preset?.name ?? `Apuntando AR ${ra.toFixed(5)}° · Dec ${dec.toFixed(5)}°`
+    stageHint.value = preset?.name ?? pointingHint(ra, dec)
     syncCoords()
     syncFoVFromAladin()
 
@@ -1483,6 +1494,7 @@ onMounted(() => {
   document.documentElement.classList.add('is-explorer')
   document.documentElement.classList.remove('is-look-locked')
   window.addEventListener('resize', measureSky)
+  stageHint.value = ui.value.pickNebula
   void boot()
 })
 
@@ -1759,7 +1771,7 @@ onUnmounted(() => {
             <p>{{ shortObsId(obs.obs_id) }}</p>
             <span>{{ bandLabel(obs.energy_bandpassname) }} · {{ mjdToHint(obs.t_min) }}</span>
             <div class="obs__row">
-              <button type="button" class="mini mini--gold" title="Cutout real + metadatos" @click="openObsDetail(obs)">
+              <button type="button" class="mini mini--gold" :title="ui.detailCutoutTitle" @click="openObsDetail(obs)">
                 {{ ui.detail }}
               </button>
               <button type="button" class="mini" @click="useObsTarget(obs)">{{ ui.go }}</button>
@@ -1818,7 +1830,7 @@ onUnmounted(() => {
               type="button"
               class="action action--primary"
               :class="{ 'is-live': spherexFloatOpen }"
-              title="Abre o trae el blink al frente"
+              :title="ui.openBlinkFront"
               @click="openSpherexFloat"
             >
               {{ spherexFloatOpen ? ui.bringBlink : ui.openBlink }}
@@ -1837,7 +1849,7 @@ onUnmounted(() => {
         </template>
 
         <template v-else>
-        <div class="seg seg--sub" role="tablist" aria-label="Tipo WISE">
+        <div class="seg seg--sub" role="tablist" :aria-label="ui.wiseType">
           <button
             type="button"
             class="seg__btn"
@@ -1997,12 +2009,12 @@ onUnmounted(() => {
       <div class="sky__bar-coords">
         <!-- Una sola línea: con blink = recorte; si no = centro de la vista. -->
         <template v-if="spherexFloatOpen && playerRa != null && playerDec != null">
-          <span class="sky__bar-tag sky__bar-tag--cut" title="Coords del blink / marco dorado">Recorte</span>
-          <span>AR {{ playerRa.toFixed(5) }}°</span>
+          <span class="sky__bar-tag sky__bar-tag--cut" :title="ui.cutoutTagTitle">{{ ui.cutoutTag }}</span>
+          <span>RA {{ playerRa.toFixed(5) }}°</span>
           <span>Dec {{ playerDec.toFixed(5) }}°</span>
         </template>
         <template v-else>
-          <span>AR {{ liveRa }}°</span>
+          <span>RA {{ liveRa }}°</span>
           <span>Dec {{ liveDec }}°</span>
         </template>
         <span :class="backendOk ? 'ok' : 'bad'">{{ backendOk ? 'API ok' : 'API…' }}</span>
@@ -2012,10 +2024,10 @@ onUnmounted(() => {
         class="btn btn--datos"
         data-tour="data"
         :class="{ 'btn--on': drawerOpen, 'is-pulse': !drawerOpen }"
-        title="Info del objetivo, observaciones y movimiento"
+        :title="ui.dataPanelTitle"
         @click="toggleDrawer"
       >
-        Datos
+        {{ ui.data }}
       </button>
       <div class="sky__bar-zoom">
         <button type="button" class="zoom-btn" :title="ui.zoomIn" @click="zoomBy(0.65)">+</button>
@@ -2064,7 +2076,7 @@ onUnmounted(() => {
     <div v-if="status === 'loading'" class="sky__overlay">{{ ui.loadingAtlas }}</div>
     <div v-else-if="status === 'error'" class="sky__overlay">
       <p>{{ errorMessage }}</p>
-      <button type="button" class="btn btn--gold" @click="boot">Reintentar</button>
+      <button type="button" class="btn btn--gold" @click="boot">{{ ui.retry }}</button>
     </div>
   </div>
 </template>
