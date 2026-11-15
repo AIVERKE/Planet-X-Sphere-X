@@ -25,6 +25,14 @@ export function mjdToHint(mjd: unknown): string {
   return `~${year.toFixed(1)}`
 }
 
+/** MJD → fecha UTC (MJD 0 = 1858-11-17). */
+export function mjdToIso(mjd: unknown): string {
+  const n = Number(mjd)
+  if (!Number.isFinite(n)) return 'fecha —'
+  const ms = Date.UTC(1858, 10, 17) + n * 86_400_000
+  return new Date(ms).toISOString().slice(0, 10)
+}
+
 export function hostFromUrl(url: unknown): string {
   if (typeof url !== 'string' || !url) return ''
   try {
