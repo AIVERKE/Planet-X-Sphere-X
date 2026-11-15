@@ -83,13 +83,13 @@ onUnmounted(() => {
         <div class="flex items-center justify-between gap-3 px-4 py-5 sm:gap-4 sm:px-6 md:px-10">
           <button
             type="button"
-            class="hud-text pointer-events-auto max-w-[42vw] truncate text-left text-[11px] tracking-[0.18em] uppercase sm:max-w-none sm:text-[12px] md:text-[13px]"
+            class="hud-text-gold pointer-events-auto max-w-[42vw] truncate text-left text-[11px] tracking-[0.18em] uppercase sm:max-w-none sm:text-[12px] md:text-[13px]"
             @click="goBack"
           >
             {{ m.brand }}
           </button>
           <div class="pointer-events-auto flex shrink-0 items-center gap-3 sm:gap-5">
-            <span class="hud-text hidden text-[12px] tracking-[0.24em] uppercase md:inline md:text-[13px]">
+            <span class="hud-kicker-gold hidden text-[12px] tracking-[0.24em] uppercase md:inline md:text-[13px]">
               {{ m.about.brand }}
             </span>
             <LanguageToggle />
@@ -116,12 +116,20 @@ onUnmounted(() => {
           @click="jumpTo(section.cameraAt)"
         >
           <span
-            class="block h-2 w-2 shrink-0 rotate-45 transition"
-            :class="activeIndex === index ? 'bg-white/90' : 'bg-white/35'"
+            class="hud-diamond block h-2 w-2 shrink-0 rotate-45 border transition"
+            :class="
+              activeIndex === index
+                ? 'border-[var(--hud-gold)] bg-[var(--hud-gold)]/80'
+                : 'border-white/35 bg-transparent'
+            "
           />
           <span
             class="truncate text-[11px] tracking-[0.18em] uppercase transition lg:text-[12px]"
-            :class="activeIndex === index ? 'hud-text' : 'hud-text-muted'"
+            :class="
+              activeIndex === index
+                ? 'hud-link-gold hud-underline hud-underline-gold is-active'
+                : 'hud-text-muted'
+            "
           >
             {{ section.index }} {{ sectionCopy(section.id)?.name }}
           </span>
@@ -129,42 +137,54 @@ onUnmounted(() => {
       </nav>
 
       <div
-        class="pointer-events-none fixed top-20 left-4 z-20 sm:top-24 lg:hidden"
+        class="pointer-events-none fixed top-20 left-4 z-20 flex items-center gap-3 sm:top-24 lg:hidden"
         :style="{ opacity: Math.max(sectionOpacity(activeSection.id), 0.55) }"
       >
-        <p class="hud-text-muted text-[11px] tracking-[0.28em]">{{ activeSection.index }}</p>
-        <p class="hud-text text-[13px] tracking-[0.2em] uppercase sm:text-[14px]">
-          {{ sectionCopy(activeSection.id)?.name }}
-        </p>
+        <span class="hud-diamond block h-2 w-2 rotate-45 border" aria-hidden="true" />
+        <div>
+          <p class="hud-kicker-gold text-[11px] tracking-[0.28em]">{{ activeSection.index }}</p>
+          <p class="hud-text text-[13px] tracking-[0.2em] uppercase sm:text-[14px]">
+            {{ sectionCopy(activeSection.id)?.name }}
+          </p>
+        </div>
       </div>
 
-      <!-- Columna única: evita que títulos EN largos se salgan de pantalla -->
+      <!-- Columna única: tipografía contenida + scroll si no cabe en el viewport -->
       <section
         v-for="section in aboutSections"
         :key="section.id"
-        class="pointer-events-none fixed inset-x-0 top-0 bottom-0 z-10 flex items-start justify-center px-4 pt-[11vh] pb-10 sm:px-8 sm:pt-[12vh] lg:justify-start lg:pl-[14rem] lg:pr-10"
+        class="pointer-events-none fixed inset-x-0 top-0 bottom-0 z-10 flex items-start justify-center overflow-hidden px-4 pt-[9vh] pb-8 sm:px-8 sm:pt-[10vh] lg:justify-start lg:pl-[14rem] lg:pr-10"
         :style="{ opacity: sectionOpacity(section.id) }"
         :aria-hidden="sectionOpacity(section.id) < 0.08"
       >
-        <div class="flex w-full max-w-[min(92vw,36rem)] flex-col gap-4 lg:max-w-[min(50vw,38rem)]">
+        <div
+          class="about-copy-panel hud-panel hud-panel--soft flex w-full max-w-[min(92vw,34rem)] flex-col gap-3 overflow-y-auto overscroll-contain p-4 sm:gap-3.5 sm:p-5 lg:max-w-[min(48vw,36rem)]"
+        >
+          <p class="hud-kicker-gold shrink-0 text-[10px] tracking-[0.32em] uppercase">
+            {{ section.index }} · {{ sectionCopy(section.id)?.name }}
+          </p>
           <h2
-            class="hud-text text-[clamp(28px,4.8vw,64px)] leading-[1.08] font-medium tracking-[0.08em] uppercase break-words"
+            class="hud-text-gold shrink-0 text-[clamp(22px,3.6vw,44px)] leading-[1.12] font-medium tracking-[0.08em] uppercase break-words"
           >
             {{ sectionCopy(section.id)?.title }}
           </h2>
-          <p class="hud-text-muted max-w-[38rem] text-[17px] leading-relaxed sm:text-[18px] md:text-[20px]">
+          <p
+            class="hud-text-muted max-w-[38rem] shrink-0 border-l border-[var(--hud-gold-border)] pl-3.5 text-[14px] leading-relaxed sm:text-[15px] md:text-[16px]"
+          >
             {{ sectionCopy(section.id)?.body }}
           </p>
           <ul
             v-if="sectionCopy(section.id)?.points?.length"
-            class="max-w-[38rem] space-y-3"
+            class="max-w-[38rem] shrink-0 space-y-2.5 pb-1"
           >
             <li
               v-for="point in sectionCopy(section.id)?.points"
               :key="point"
-              class="hud-text flex items-start gap-3 text-[15px] leading-snug tracking-[0.02em] sm:text-[16px] md:text-[17px]"
+              class="hud-text flex items-start gap-3 text-[13px] leading-snug tracking-[0.02em] sm:text-[14px] md:text-[15px]"
             >
-              <span class="mt-2 h-1.5 w-1.5 shrink-0 rotate-45 bg-white/85" />
+              <span
+                class="hud-diamond mt-1.5 h-1.5 w-1.5 shrink-0 rotate-45 border bg-[var(--hud-gold)]/70"
+              />
               <span class="min-w-0 break-words">{{ point }}</span>
             </li>
           </ul>
@@ -175,20 +195,44 @@ onUnmounted(() => {
         v-show="progress < 0.08"
         class="fixed bottom-8 left-1/2 z-20 -translate-x-1/2 text-center"
       >
-        <div class="scroll-line mx-auto mb-3 h-12 w-px bg-white/60" />
-        <p class="hud-text-muted text-[12px] tracking-[0.28em] uppercase sm:text-[13px]">
+        <div class="scroll-line mx-auto mb-3 h-12 w-px bg-[var(--hud-gold)]/70" />
+        <p class="hud-kicker-gold text-[12px] tracking-[0.28em] uppercase sm:text-[13px]">
           {{ m.about.scrollHint }}
         </p>
       </div>
 
       <div
-        class="fixed right-5 bottom-8 hidden h-28 w-px bg-white/20 md:block"
+        class="hud-meter fixed right-5 bottom-8 hidden h-28 w-px md:block"
         aria-hidden="true"
       >
-        <div class="w-px bg-white" :style="{ height: `${progress * 100}%` }" />
+        <div class="hud-meter__fill w-px" :style="{ height: `${progress * 100}%` }" />
       </div>
     </div>
 
     <div ref="stage" class="relative h-[720vh]" aria-hidden="true" />
   </div>
 </template>
+
+<style scoped>
+.about-copy-panel {
+  max-height: min(78vh, calc(100dvh - 7.5rem));
+  -webkit-overflow-scrolling: touch;
+  scrollbar-width: thin;
+  scrollbar-color: rgba(232, 196, 120, 0.45) transparent;
+}
+
+.about-copy-panel::-webkit-scrollbar {
+  width: 4px;
+}
+
+.about-copy-panel::-webkit-scrollbar-thumb {
+  background: rgba(232, 196, 120, 0.4);
+  border-radius: 999px;
+}
+
+@media (max-height: 720px) {
+  .about-copy-panel {
+    max-height: min(82vh, calc(100dvh - 5.5rem));
+  }
+}
+</style>

@@ -53,11 +53,11 @@ function formatTemp(value: number) {
 </script>
 
 <template>
-  <article class="bg-transparent p-0">
-    <p class="hud-text-muted text-[10px] tracking-[0.22em] uppercase">
+  <article class="hud-panel p-5 md:p-6">
+    <p class="hud-kicker-gold text-[10px] tracking-[0.22em] uppercase">
       {{ m.telemetry.mission }}
     </p>
-    <h3 class="hud-text mt-2 text-3xl font-medium tracking-[0.08em] uppercase">
+    <h3 class="hud-text-gold mt-2 text-3xl font-medium tracking-[0.08em] uppercase">
       {{ activePlanet.name }}
     </h3>
     <p class="hud-text-muted mt-1 text-[12px] tracking-[0.18em] uppercase">
@@ -100,17 +100,13 @@ function formatTemp(value: number) {
       <AtmosphereBars :gases="activePlanet.atmosphere" />
     </div>
 
-    <button
-      type="button"
-      class="hud-link hud-underline mt-6 pb-1 text-[11px] tracking-[0.2em] uppercase"
-      @click="travel"
-    >
+    <button type="button" class="hud-btn-gold mt-6 text-[11px]" @click="travel">
       {{ travelLabel }}
     </button>
     <button
       v-if="store.cameraMode !== 'scroll' && store.cameraMode !== 'look'"
       type="button"
-      class="hud-text-muted mt-4 block text-[11px] tracking-[0.18em] uppercase"
+      class="hud-link hud-underline mt-4 block pb-1 text-[11px] tracking-[0.18em] uppercase"
       @click="store.requestRail(null)"
     >
       {{ m.telemetry.backJourney }}

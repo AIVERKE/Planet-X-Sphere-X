@@ -49,12 +49,12 @@ function onWheel(event: WheelEvent) {
       class="absolute inset-0 grid grid-cols-1 items-center gap-8 px-6 pt-24 pb-10 md:grid-cols-[minmax(0,1fr)_minmax(0,1.1fr)] md:gap-6 md:px-12 lg:px-16"
     >
       <div class="relative z-10 flex flex-col items-start justify-center md:max-w-[36rem] md:pl-2">
-        <p class="hud-text-muted mb-3 text-[10px] tracking-[0.36em] uppercase">
+        <p class="hud-kicker-gold mb-3 text-[10px] tracking-[0.36em] uppercase">
           Capítulo final · Acceso al laboratorio
         </p>
         <h2 class="hud-text mb-8 text-left text-[clamp(26px,3.4vw,42px)] leading-[1.25] tracking-[0.1em]">
           <span class="block">{{ m.spherex.titleLine1 }}</span>
-          <span class="block">{{ m.spherex.titleLine2 }}</span>
+          <span class="block hud-text-gold">{{ m.spherex.titleLine2 }}</span>
         </h2>
 
         <button
@@ -94,13 +94,13 @@ function onWheel(event: WheelEvent) {
   isolation: isolate;
   min-width: min(100%, 28rem);
   padding: 1.15rem 1.35rem 1.05rem;
-  border: 1px solid rgba(232, 196, 120, 0.55);
+  border: 1px solid var(--hud-gold-border, rgba(232, 196, 120, 0.55));
   background:
     linear-gradient(135deg, rgba(232, 196, 120, 0.16), rgba(0, 0, 0, 0.35) 55%),
     rgba(8, 10, 16, 0.55);
   box-shadow:
     0 0 0 1px rgba(255, 255, 255, 0.06) inset,
-    0 0 36px rgba(232, 196, 120, 0.22),
+    0 0 36px var(--hud-gold-glow, rgba(232, 196, 120, 0.22)),
     0 12px 40px rgba(0, 0, 0, 0.35);
   transition:
     border-color 180ms ease,
@@ -123,7 +123,12 @@ function onWheel(event: WheelEvent) {
   inset: -2px;
   z-index: -1;
   border-radius: inherit;
-  background: linear-gradient(120deg, rgba(232, 196, 120, 0.45), transparent 40%, rgba(120, 170, 255, 0.2));
+  background: linear-gradient(
+    120deg,
+    rgba(232, 196, 120, 0.45),
+    transparent 40%,
+    rgba(120, 170, 255, 0.2)
+  );
   opacity: 0.55;
   filter: blur(10px);
   animation: cta-pulse 2.8s ease-in-out infinite;
@@ -131,7 +136,7 @@ function onWheel(event: WheelEvent) {
 
 .mission-cta__label {
   display: block;
-  color: #fff8e8;
+  color: var(--hud-gold-text, #fff8e8);
   font-size: clamp(1.55rem, 3.6vw, 2.55rem);
   line-height: 1.1;
   letter-spacing: 0.08em;
@@ -153,7 +158,7 @@ function onWheel(event: WheelEvent) {
 .mission-cta__hint {
   display: block;
   margin-top: 0.85rem;
-  color: rgba(232, 196, 120, 0.95);
+  color: var(--hud-gold, rgba(232, 196, 120, 0.95));
   font-size: 0.72rem;
   letter-spacing: 0.22em;
   text-transform: uppercase;

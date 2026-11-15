@@ -65,16 +65,16 @@ onUnmounted(() => {
         v-if="store.cameraMode === 'look'"
         class="fixed inset-x-0 bottom-10 flex flex-col items-center gap-4 px-6 text-center"
       >
-        <div class="h-px w-40 bg-white/25">
+        <div class="hud-meter h-px w-40">
           <div
-            class="h-px bg-white transition-[width] duration-100"
+            class="hud-meter__fill h-px transition-[width] duration-100"
             :style="{ width: `${store.skyGaze * 100}%` }"
           />
         </div>
         <p class="hud-text text-[11px] tracking-[0.28em] uppercase">{{ hint }}</p>
         <button
           type="button"
-          class="hud-link hud-underline pointer-events-auto pb-1 text-[10px] tracking-[0.22em] uppercase"
+          class="hud-btn-gold pointer-events-auto w-auto min-w-[12rem] px-5 text-[10px]"
           @click="store.requestAscent()"
         >
           {{ m.look.ascend }}
@@ -85,18 +85,21 @@ onUnmounted(() => {
         v-show="store.cameraMode === 'scroll' && store.scrollProgress < 0.48 && store.scrollProgress > 0.4"
         class="fixed bottom-8 left-1/2 -translate-x-1/2 text-center"
       >
-        <div class="scroll-line mx-auto mb-3 h-12 w-px bg-white/60" />
-        <p class="hud-text-muted text-[11px] tracking-[0.32em] uppercase">
+        <div class="scroll-line mx-auto mb-3 h-12 w-px bg-[var(--hud-gold)]/70" />
+        <p class="hud-kicker-gold text-[11px] tracking-[0.32em] uppercase">
           {{ m.scroll.continue }}
         </p>
       </div>
 
       <div
         v-show="store.hasAscended"
-        class="fixed right-6 bottom-8 hidden h-28 w-px bg-white/20 md:block"
+        class="hud-meter fixed right-6 bottom-8 hidden h-28 w-px md:block"
         aria-hidden="true"
       >
-        <div class="w-px bg-white" :style="{ height: `${store.scrollProgress * 100}%` }" />
+        <div
+          class="hud-meter__fill w-px"
+          :style="{ height: `${store.scrollProgress * 100}%` }"
+        />
       </div>
     </div>
     <ScrollStage v-show="store.hasAscended" />

@@ -11,12 +11,17 @@ const open = ref(false)
 const { m } = useI18n()
 
 const links = computed(() => [
-  { label: m.value.nav.landscape, progress: 0 },
-  { label: m.value.nav.world, progress: 0.4 },
-  { label: m.value.nav.space, progress: 0.6 },
-  { label: m.value.nav.explore, progress: 0.8 },
-  { label: m.value.nav.spherex, progress: 0.96 },
+  { label: m.value.nav.landscape, progress: 0, phase: 1 },
+  { label: m.value.nav.world, progress: 0.4, phase: 2 },
+  { label: m.value.nav.space, progress: 0.6, phase: 3 },
+  { label: m.value.nav.explore, progress: 0.8, phase: 4 },
+  { label: m.value.nav.spherex, progress: 0.96, phase: 5 },
 ])
+
+function isActive(phase: number) {
+  if (store.cameraMode === 'look') return phase === 1
+  return store.phase === phase
+}
 
 function go(progress: number) {
   open.value = false
@@ -45,7 +50,7 @@ function openAbout() {
     >
       <button
         type="button"
-        class="hud-text pointer-events-auto text-left text-[11px] tracking-[0.2em] uppercase"
+        class="hud-text-gold pointer-events-auto text-left text-[11px] tracking-[0.2em] uppercase"
         @click="go(0)"
       >
         {{ m.brand }}
@@ -55,7 +60,12 @@ function openAbout() {
           v-for="link in links"
           :key="link.label"
           type="button"
-          class="hud-link hud-underline pb-1 text-[11px] tracking-[0.24em] uppercase"
+          class="hud-underline pb-1 text-[11px] tracking-[0.24em] uppercase"
+          :class="
+            isActive(link.phase)
+              ? 'hud-link-gold hud-underline-gold is-active'
+              : 'hud-link'
+          "
           @click="go(link.progress)"
         >
           {{ link.label }}
@@ -90,7 +100,12 @@ function openAbout() {
         v-for="link in links"
         :key="link.label"
         type="button"
-        class="hud-link hud-underline w-fit pb-1 text-[12px] tracking-[0.28em] uppercase"
+        class="hud-underline w-fit pb-1 text-[12px] tracking-[0.28em] uppercase"
+        :class="
+          isActive(link.phase)
+            ? 'hud-link-gold hud-underline-gold is-active'
+            : 'hud-link'
+        "
         @click="go(link.progress)"
       >
         {{ link.label }}

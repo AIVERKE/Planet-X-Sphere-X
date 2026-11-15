@@ -33,16 +33,16 @@ function select(id: string) {
     :style="{ opacity, transform: `translateY(${(1 - opacity) * 16}px)` }"
   >
     <section
-      class="absolute top-24 right-4 left-4 md:right-auto md:left-10 md:w-[300px]"
+      class="hud-panel hud-panel--soft absolute top-24 right-4 left-4 p-4 md:right-auto md:left-10 md:w-[300px] md:p-5"
       :class="opacity > 0.2 ? 'pointer-events-auto' : 'pointer-events-none'"
     >
       <PlanetSearch />
-      <ul class="mt-6 max-h-[min(52vh,420px)] space-y-0 overflow-y-auto overscroll-contain pr-1">
+      <ul class="mt-5 max-h-[min(52vh,420px)] space-y-0 overflow-y-auto overscroll-contain pr-1">
         <li v-for="planet in results" :key="planet.id">
           <button
             type="button"
-            class="w-full py-2.5 text-left transition"
-            :class="store.activePlanetId === planet.id ? 'hud-text' : 'hud-link'"
+            class="hud-list-item w-full py-2.5 text-left transition"
+            :class="store.activePlanetId === planet.id ? 'is-active' : 'hud-link'"
             @click="select(planet.id)"
           >
             <span class="hud-text-muted block text-[10px] tracking-[0.18em] uppercase">
@@ -50,7 +50,11 @@ function select(id: string) {
             </span>
             <span
               class="mt-0.5 block text-base tracking-[0.06em] md:text-lg"
-              :class="store.activePlanetId === planet.id ? 'hud-underline is-active' : ''"
+              :class="
+                store.activePlanetId === planet.id
+                  ? 'hud-underline hud-underline-gold is-active'
+                  : ''
+              "
             >
               {{ planet.name }}
             </span>
