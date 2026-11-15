@@ -13,8 +13,10 @@ import type { ShapeBuilder } from './types'
 const GRS = new Vector2(0.366, 0.395)
 /** rad/s: una vuelta cada ~18 s. */
 const SPIN = 0.35
-/** Acimut de la mancha en el cuadro estático: un poco hacia el lado iluminado. */
-const STILL_AZIMUTH = -0.35
+/** Acimut de la mancha en el cuadro estático: algo a la derecha del centro, como en la foto. */
+const STILL_AZIMUTH = 0.12
+/** Inclinación de las bandas en pantalla (rad), como en la foto de referencia (Hubble, 2019). */
+const ROLL = -0.33
 /** Achatamiento real ≈ 0.065. */
 const OBLATENESS = 0.065
 
@@ -52,6 +54,9 @@ void main() {
   float collar = exp(-pow(sqrt(r2) - 1.2, 2.0) * 10.0);
   tex = mix(tex, tex * vec3(1.3, 0.62, 0.46), spot * 0.9);
   tex *= 1.0 - collar * 0.2;
+  // Algo más de saturación: el mapa Cassini es más pálido que la foto del Hubble de referencia.
+  float luma = dot(tex, vec3(0.2126, 0.7152, 0.0722));
+  tex = max(mix(vec3(luma), tex, 1.25), 0.0);
 
   // Luz direccional con terminador suave y oscurecimiento del limbo.
   float ndl = dot(n, uLight);
@@ -75,7 +80,7 @@ export const buildJupiter: ShapeBuilder = (ctx) => {
   root.add(buildStarfield(ctx))
 
   const body = new Group()
-  body.rotation.z = 0.05
+  body.rotation.z = ROLL
   root.add(body)
 
   const geometry = ctx.keep(new SphereGeometry(1, 96, 64))
@@ -94,7 +99,8 @@ export const buildJupiter: ShapeBuilder = (ctx) => {
       fragmentShader,
       uniforms: {
         uMap: { value: map },
-        uLight: { value: new Vector3(-0.62, 0.22, 0.75).normalize() },
+        // ~30° respecto de la visual: casi disco lleno como en la foto, con terminador visible.
+        uLight: { value: new Vector3(-0.45, 0.2, 0.87).normalize() },
         uHaze: { value: ctx.colors[2] },
         uSpot: { value: GRS },
       },

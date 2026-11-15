@@ -87,7 +87,7 @@ void main() {
   vec2 seed = vec2(uSeed * 7.13, uSeed * 3.71);
 
   // Contorno irregular: un óvalo deformado por ruido, con viñeta de seguridad en el borde del plano.
-  float outline = length(p * vec2(0.78, 1.08)) + (fbm3(p * 1.25 + seed * 0.1 + 4.0) - 0.45) * 1.05;
+  float outline = length(p * vec2(0.66, 0.9)) + (fbm3(p * 1.25 + seed * 0.1 + 4.0) - 0.45) * 1.05;
   vec2 edge = abs(vUv - 0.5);
   float frame = smoothstep(0.5, 0.36, edge.x) * smoothstep(0.5, 0.34, edge.y);
   float mask = smoothstep(1.02, 0.22, outline) * frame;
@@ -115,9 +115,10 @@ void main() {
   d *= 1.0 - 0.95 * max(dust, lane * 0.9);
 
   float heat = clamp(d * 0.75 + core * 0.35, 0.0, 1.0);
-  vec3 col = mix(uC, uB, smoothstep(0.04, 0.38, heat));
-  col = mix(col, uA, smoothstep(0.4, 0.85, heat));
-  col = mix(col, vec3(1.0, 0.94, 0.84), smoothstep(0.9, 1.0, heat) * core);
+  // Domina el rosa del hidrógeno (uB); el púrpura queda en lo más tenue y el tono cálido, en el núcleo.
+  vec3 col = mix(uC, uB, smoothstep(0.0, 0.22, heat));
+  col = mix(col, uA, smoothstep(0.5, 0.95, heat) * (0.3 + 0.7 * core));
+  col = mix(col, vec3(1.0, 0.95, 0.9), smoothstep(0.9, 1.0, heat) * core);
 
   // Compresión suave por capa: el núcleo brilla en oro sin quemarse en blanco al sumar
   // las capas, y los filamentos conservan su contraste.

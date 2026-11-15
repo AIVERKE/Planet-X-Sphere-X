@@ -58,7 +58,8 @@ export const SKY_CATALOG: CatalogEntry[] = [
     id: 'emission',
     row: 'sky',
     shape: 'nebula',
-    colors: ['#ffb15a', '#c43b78', '#6a4cff'],
+    // Paleta de la foto de referencia: núcleo cálido, rosa del hidrógeno, púrpura tenue.
+    colors: ['#ffd2b0', '#e0457b', '#6b3fa0'],
     reference: {
       src: m42Url,
       credit:
@@ -110,7 +111,8 @@ export const SKY_CATALOG: CatalogEntry[] = [
     id: 'planetary',
     row: 'sky',
     shape: 'ring',
-    colors: ['#d7fff2', '#3ec6c2', '#7a5cff'],
+    // Paleta de la foto de referencia: borde interior cian, cavidad azul, borde exterior naranja.
+    colors: ['#c9f7e4', '#3f7fe0', '#ff7a2e'],
     reference: {
       src: m57Url,
       credit: "NASA, ESA, and C. Robert O'Dell (Vanderbilt University) · ESA/Hubble",

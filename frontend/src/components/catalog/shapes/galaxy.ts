@@ -12,7 +12,7 @@ import { buildStarfield, emptyCloud, gauss, makePoints, POINT_FRAGMENT, POINT_SI
 import type { ShapeBuilder } from './types'
 
 /**
- * Galaxia espiral (referencia: M81, inclinada ~60°).
+ * Galaxia espiral (referencia: M31, Andrómeda, con sus satélites M32 y M110).
  * Señales: dos brazos en espiral logarítmica azulados, núcleo denso y amarillento,
  * bandas de polvo en el borde interior de los brazos, rotación diferencial.
  *
@@ -23,14 +23,20 @@ import type { ShapeBuilder } from './types'
  */
 
 const BULGE = 3000
-const DISK = 9000
-const GLOW = 2200
+const DISK = 8000
+const GLOW = 3200
 const HII = 500
-const DUST = 1500
+const DUST = 900
 const A0 = 0.06
-const K = 3.0
-const INCLINATION = (60 * Math.PI) / 180
-const POSITION_ANGLE = -0.5
+/** Espiral más cerrada que la de M81: los brazos de M31 se ven como arcos. */
+const K = 3.8
+/**
+ * M31 está a ~77° y el ticket pide ~60°: 70° conserva los brazos visibles y se acerca
+ * al óvalo alargado de la foto.
+ */
+const INCLINATION = (70 * Math.PI) / 180
+/** Eje mayor en diagonal, como en la foto de referencia. */
+const POSITION_ANGLE = -0.84
 const PATTERN_SPEED = 0.035
 
 const orbitVertex = /* glsl */ `
@@ -54,14 +60,15 @@ void main() {
   float sp = sin(aOrbit.z);
   vec3 p = vec3(e.x * cp - e.y * sp, aHeight, e.x * sp + e.y * cp);
 
-  float crest = pow(abs(c), 6.0);
+  // Los brazos se marcan sobre todo en el disco exterior; dentro domina el brillo suave del bulbo.
+  float crest = pow(abs(c), 6.0) * smoothstep(0.2, 0.55, aOrbit.x);
   vec3 col = aColor;
   float gate = 1.0;
   float size = aSize;
   if (aArm > 1.5) {
     gate = smoothstep(0.45, 0.95, crest);
   } else if (aArm > 0.5) {
-    gate = mix(0.22, 1.0, crest);
+    gate = mix(0.45, 1.0, crest);
     col = mix(uInter, aColor, crest);
     size *= 1.0 + 0.6 * crest;
   }
@@ -143,23 +150,27 @@ export const buildGalaxy: ShapeBuilder = (ctx) => {
   }
 
   for (let i = 0; i < BULGE; i += 1) {
-    const a = Math.min(Math.abs(gauss(random)) * 0.11 + 0.004, 0.42)
+    const a = Math.min(Math.abs(gauss(random)) * 0.14 + 0.004, 0.5)
     tint.copy(warm).lerp(cream, random() * 0.6)
-    add(a, 0.82 + random() * 0.12, random() * Math.PI * 2, gauss(random) * 0.055 * (1 - a), 0, 0.016 + random() * 0.014, 0.16 + random() * 0.2)
+    add(a, 0.82 + random() * 0.12, random() * Math.PI * 2, gauss(random) * 0.055 * (1 - a), 0, 0.016 + random() * 0.016, 0.1 + random() * 0.12)
   }
 
   const diskRadius = () => {
     let a = 2
-    while (a > 1 || a < 0.1) a = -0.3 * Math.log(Math.max(random() * random(), 1e-9))
+    // Disco exponencial corto: la luz se concentra hacia el centro, como en M31.
+    while (a > 1 || a < 0.1) a = -0.23 * Math.log(Math.max(random() * random(), 1e-9))
     return a
   }
+
+  // Las zonas densas (centro) llevan estrellas más tenues para que el aditivo no queme en blanco.
+  const density = (a: number) => 0.18 + 0.82 * Math.min(Math.max((a - 0.1) / 0.6, 0), 1)
 
   for (let i = 0; i < DISK; i += 1) {
     const a = diskRadius()
     const old = random() < 0.15
     tint.copy(old ? cream : blue).lerp(deep, old ? 0 : 0.3 + random() * 0.5)
     const phi = armAngle(a) + gauss(random) * 0.18
-    add(a, axisRatio(a), phi, gauss(random) * (0.012 + 0.02 * (1 - a)), 1, 0.011 + random() * random() * 0.022, 0.35 + random() * 0.35)
+    add(a, axisRatio(a), phi, gauss(random) * (0.012 + 0.02 * (1 - a)), 1, 0.011 + random() * random() * 0.02, (0.18 + random() * 0.2) * density(a))
   }
 
   // Luz difusa de los brazos: puntos grandes y tenues que funden las estrellas en un brillo continuo.
@@ -167,7 +178,7 @@ export const buildGalaxy: ShapeBuilder = (ctx) => {
     const a = diskRadius()
     tint.copy(blue).lerp(cream, 0.25 + random() * 0.3)
     const phi = armAngle(a) + gauss(random) * 0.2
-    add(a, axisRatio(a), phi, gauss(random) * 0.015, 1, 0.07 + random() * 0.06, 0.07 + random() * 0.05)
+    add(a, axisRatio(a), phi, gauss(random) * 0.015, 1, 0.08 + random() * 0.07, (0.1 + random() * 0.08) * density(a))
   }
 
   for (let i = 0; i < HII; i += 1) {
@@ -208,8 +219,8 @@ export const buildGalaxy: ShapeBuilder = (ctx) => {
 
   // --- Núcleo: brillo denso y amarillento ---
   const core = emptyCloud()
-  pushPoint(core, 0, 0, 0, warm.clone().multiplyScalar(0.3), 0.8)
-  pushPoint(core, 0, 0, 0, warm.clone().lerp(white, 0.2).multiplyScalar(0.4), 0.24)
+  pushPoint(core, 0, 0, 0, warm.clone().multiplyScalar(0.32), 1.05)
+  pushPoint(core, 0, 0, 0, warm.clone().lerp(white, 0.3).multiplyScalar(0.5), 0.3)
   const glow = makePoints(ctx, core, { falloff: 5 })
   spin.add(glow)
 
@@ -218,19 +229,37 @@ export const buildGalaxy: ShapeBuilder = (ctx) => {
   for (let i = 0; i < DUST; i += 1) {
     const a = 0.16 + Math.pow(random(), 0.8) * 0.72
     const side = random() < 0.5 ? 0 : Math.PI
-    const r = a * (0.885 + gauss(random) * 0.014)
+    const r = a * (0.885 + gauss(random) * 0.02)
     const angle = armAngle(a) + side + gauss(random) * 0.04
     // Casi negro: el polvo absorbe la luz de las estrellas, no brilla.
     tint.copy(dustColor).multiplyScalar(0.05 + random() * 0.06)
-    pushPoint(dust, Math.cos(angle) * r, gauss(random) * 0.008, Math.sin(angle) * r, tint, 0.022 + random() * 0.026)
+    pushPoint(dust, Math.cos(angle) * r, gauss(random) * 0.008, Math.sin(angle) * r, tint, 0.04 + random() * 0.04)
   }
-  const lanes = makePoints(ctx, dust, { blending: NormalBlending, falloff: 3, opacity: 0.3 })
+  const lanes = makePoints(ctx, dust, { blending: NormalBlending, falloff: 3, opacity: 0.18 })
   lanes.renderOrder = 2
   spin.add(lanes)
 
+  // Satélites: M32 (compacta, junto al núcleo) y M110 (alargada y difusa), como en la foto.
+  const companions = emptyCloud()
+  const satellite = (x: number, y: number, count: number, sx: number, sy: number, roll: number, brightness: number) => {
+    const c = Math.cos(roll)
+    const s = Math.sin(roll)
+    for (let i = 0; i < count; i += 1) {
+      const u = gauss(random) * sx
+      const v = gauss(random) * sy
+      tint.copy(cream).lerp(warm, random() * 0.5)
+      pushPoint(companions, x + u * c - v * s, y + u * s + v * c, 0.2, tint.multiplyScalar(0.5), 0.01 + random() * 0.01)
+    }
+    pushPoint(companions, x, y, 0.2, warm.clone().lerp(white, 0.3).multiplyScalar(brightness), Math.max(sx, sy) * 5)
+  }
+  satellite(0.03, -0.32, 160, 0.018, 0.015, 0, 0.7)
+  satellite(0.3, 0.33, 260, 0.07, 0.035, -0.9, 0.35)
+  const dwarfs = makePoints(ctx, companions, { falloff: 6, opacity: 0.75 })
+  root.add(dwarfs)
+
   return {
     object: root,
-    cameraZ: 3.25,
+    cameraZ: 3.55,
     stillTime: 0,
     update(t) {
       spin.rotation.y = t * PATTERN_SPEED

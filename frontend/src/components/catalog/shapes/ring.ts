@@ -3,6 +3,9 @@ import { NOISE_GLSL } from '@/three/materials/noise.glsl'
 import { buildStarfield, emptyCloud, makePoints, pushPoint } from './points'
 import type { ShapeBuilder, ShapeContext } from './types'
 
+/** Inclinación de la elipse en pantalla (rad), tomada de la foto de referencia. */
+const ROLL = -0.45
+
 /**
  * Nebulosa planetaria (referencia: M57, Nebulosa del Anillo).
  * Señales: cáscara simétrica con el borde más brillante (limb), centro casi vacío
@@ -103,12 +106,14 @@ function shellMaterial(ctx: ShapeContext, options: ShellOptions) {
 }
 
 export const buildRing: ShapeBuilder = (ctx) => {
-  const [mint, teal, violet] = ctx.colors
+  const [cyan, blue, orange] = ctx.colors
   const root = new Group()
   root.name = 'ring'
   root.add(buildStarfield(ctx))
 
   const nebula = new Group()
+  // Elipse inclinada como en la foto de M57.
+  nebula.rotation.z = ROLL
   root.add(nebula)
 
   const sphere = ctx.keep(new SphereGeometry(1, 64, 40))
@@ -116,16 +121,16 @@ export const buildRing: ShapeBuilder = (ctx) => {
   // Cáscara principal: gruesa y alargada sobre la línea de visión (barril), por eso se ve anillo.
   const shell = new Mesh(
     sphere,
-    shellMaterial(ctx, { innerRadius: 0.6, gain: 1.15, fill: 0.12, knots: 0.75, inner: teal, mid: mint, outer: violet }),
+    shellMaterial(ctx, { innerRadius: 0.6, gain: 1.15, fill: 0.3, knots: 0.75, inner: blue, mid: cyan, outer: orange }),
   )
-  shell.scale.set(0.66, 0.62, 0.9)
+  shell.scale.set(0.74, 0.58, 0.9)
 
-  // Halo exterior: fino, tenue, violeta y grumoso.
+  // Borde exterior difuso: naranja tenue y grumoso que deshilacha el contorno.
   const halo = new Mesh(
     sphere,
-    shellMaterial(ctx, { innerRadius: 0.86, gain: 0.32, fill: 0, knots: 1, inner: violet, mid: violet, outer: violet }),
+    shellMaterial(ctx, { innerRadius: 0.74, gain: 0.4, fill: 0, knots: 1, inner: orange, mid: orange, outer: orange }),
   )
-  halo.scale.set(0.98, 0.92, 1.05)
+  halo.scale.set(0.88, 0.71, 1.0)
 
   nebula.add(halo, shell)
 
@@ -142,10 +147,9 @@ export const buildRing: ShapeBuilder = (ctx) => {
     cameraZ: 3.8,
     stillTime: 0,
     update(t) {
+      // Los nudos se mueven en el shader (uTime); aquí solo la oscilación que delata la burbuja.
       nebula.rotation.y = Math.sin(t * 0.22) * 0.55
       nebula.rotation.x = Math.sin(t * 0.17) * 0.18
-      shell.rotation.z = t * 0.04
-      halo.rotation.z = -t * 0.025
     },
   }
 }

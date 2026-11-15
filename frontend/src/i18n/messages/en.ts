@@ -324,7 +324,7 @@ export const en: Messages = {
     orb: {
       nebula: 'Animation of an emission nebula: a gas cloud with filaments, dark gaps and stars inside',
       ring: 'Animation of a planetary nebula: a ring-shaped shell of gas with a star at its center',
-      galaxy: 'Animation of a spiral galaxy: two bluish arms and a yellowish core',
+      galaxy: 'Animation of a tilted spiral galaxy: an elongated disk with bluish arms, a yellowish core and dust lanes',
       jupiter: 'Animation of Jupiter: a banded planet with the Great Red Spot',
     },
   },

@@ -324,7 +324,7 @@ export const es: Messages = {
     orb: {
       nebula: 'Animación de una nebulosa de emisión: nube de gas con filamentos, huecos oscuros y estrellas dentro',
       ring: 'Animación de una nebulosa planetaria: cáscara de gas en forma de anillo con una estrella en el centro',
-      galaxy: 'Animación de una galaxia espiral: dos brazos azulados y un núcleo amarillento',
+      galaxy: 'Animación de una galaxia espiral inclinada: disco alargado con brazos azulados, núcleo amarillento y bandas de polvo',
       jupiter: 'Animación de Júpiter: planeta con bandas y la Gran Mancha Roja',
     },
   },
