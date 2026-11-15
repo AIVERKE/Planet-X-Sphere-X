@@ -34,23 +34,26 @@ class FramesQuery(ObservationQuery):
 
 
 class FrameRecord(BaseModel):
-    """One SPHEREx epoch, already ordered, with a browser-ready PNG URL."""
+    """One SPHEREx epoch, already ordered, with browser-ready PNG URLs."""
 
     obs_id: str
     t_min: float
     t_max: float | None = None
     band: str
-    png_url: str
+    png_url: str = Field(description="Scientific preview (may show saturated cores as black).")
+    png_url_hd: str = Field(
+        description="Same epoch, filled + upscaled HD render for the side-by-side blink."
+    )
 
 
 class FramesResponse(BaseModel):
-    """Epochs of a single detector, sharing one brightness scale."""
+    """Epochs of a single detector. Brightness is scaled per frame so the list returns immediately."""
 
     query: FramesQuery
     band: str
     available_bands: list[str]
     matched: int
     returned: int
-    vmin: float
-    vmax: float
+    vmin: float | None = None
+    vmax: float | None = None
     frames: list[FrameRecord]
