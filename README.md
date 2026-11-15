@@ -48,7 +48,7 @@ Planet-X-Sphere-X/
 
 ### Backend (API on port 8000)
 
-From the repo root, using **Git Bash** (Cursor default on Windows):
+From the repo root, using **Bash**:
 
 ```bash
 cd backend
