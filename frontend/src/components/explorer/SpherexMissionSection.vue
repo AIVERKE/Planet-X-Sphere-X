@@ -1,12 +1,14 @@
 <script setup lang="ts">
 import { computed } from 'vue'
 import { useRouter } from 'vue-router'
+import { useI18n } from '@/composables/useI18n'
 import { useSpaceStore } from '@/stores/useSpaceStore'
 import milkyWayUrl from '@/assets/images/8k_stars_milky_way.jpg'
 import probeUrl from '@/assets/images/Sonda espacial de reflector metálico aflorado.png'
 
 const store = useSpaceStore()
 const router = useRouter()
+const { m } = useI18n()
 
 const opacity = computed(() => {
   if (!store.showSpherexMission) return 0
@@ -18,6 +20,12 @@ const interactive = computed(() => opacity.value > 0.35)
 function onAladinClick() {
   // Navega a /mision: el Explorer (Three.js) se desmonta y Aladin se carga solo allí.
   void router.push({ name: 'mission' })
+}
+
+/** El overlay no debe atrapar la rueda: solo el CTA captura clics. */
+function onWheel(event: WheelEvent) {
+  if (!interactive.value) return
+  window.scrollBy({ top: event.deltaY, left: 0, behavior: 'auto' })
 }
 </script>
 
@@ -39,22 +47,23 @@ function onAladinClick() {
 
     <div
       class="absolute inset-0 grid grid-cols-1 items-center gap-8 px-6 pt-24 pb-10 md:grid-cols-[minmax(0,1fr)_minmax(0,1.1fr)] md:gap-6 md:px-12 lg:px-16"
-      :class="interactive ? 'pointer-events-auto' : 'pointer-events-none'"
     >
       <div class="relative z-10 flex flex-col items-start justify-center md:max-w-[34rem] md:pl-2">
         <h2 class="hud-text mb-8 text-left text-[clamp(26px,3.4vw,42px)] leading-[1.25] tracking-[0.1em]">
-          <span class="block">SphereX,</span>
-          <span class="block">el observatorio espacial de la NASA</span>
+          <span class="block">{{ m.spherex.titleLine1 }}</span>
+          <span class="block">{{ m.spherex.titleLine2 }}</span>
         </h2>
 
         <button
           type="button"
           class="aladin-btn hud-text border border-white/40 bg-black/20 px-7 py-5 text-left text-[clamp(28px,3.8vw,48px)] leading-[1.2] tracking-[0.05em] uppercase shadow-[0_0_28px_rgba(255,255,255,0.1)] transition hover:border-white/70"
-          title="Abrir explorador Aladin Lite (carga diferida)"
+          :class="interactive ? 'pointer-events-auto' : 'pointer-events-none'"
+          :title="m.spherex.openTitle"
           @click="onAladinClick"
+          @wheel.passive="onWheel"
         >
-          <span class="block">Abrir la misión</span>
-          <span class="block">Planet X and SPHEREx</span>
+          <span class="block">{{ m.spherex.openLine1 }}</span>
+          <span class="block">{{ m.spherex.openLine2 }}</span>
         </button>
       </div>
 
@@ -64,7 +73,7 @@ function onAladinClick() {
         <div class="probe-orbit absolute inset-0 grid place-items-center">
           <img
             :src="probeUrl"
-            alt="Sonda espacial SPHEREx de reflector metálico"
+            :alt="m.spherex.probeAlt"
             class="probe-float h-[min(40vh,320px)] w-auto max-w-[78%] object-contain"
             draggable="false"
           />

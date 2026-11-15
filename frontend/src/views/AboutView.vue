@@ -1,0 +1,194 @@
+<script setup lang="ts">
+import { computed, onMounted, onUnmounted, ref } from 'vue'
+import { useRouter } from 'vue-router'
+import gsap from 'gsap'
+import { ScrollTrigger } from 'gsap/ScrollTrigger'
+import AboutCanvas from '@/components/about/AboutCanvas.vue'
+import LanguageToggle from '@/components/common/LanguageToggle.vue'
+import { aboutSections } from '@/data/aboutSections'
+import { useI18n } from '@/composables/useI18n'
+import { fadeWindow } from '@/utils/fadeWindow'
+import '@/styles/explorer.css'
+
+gsap.registerPlugin(ScrollTrigger)
+
+const router = useRouter()
+const { m } = useI18n()
+const stage = ref<HTMLElement | null>(null)
+const progress = ref(0)
+let trigger: ScrollTrigger | null = null
+
+const activeIndex = computed(() => {
+  const p = progress.value
+  let best = 0
+  for (let i = 0; i < aboutSections.length; i += 1) {
+    if (p >= aboutSections[i].copyStart) best = i
+  }
+  return best
+})
+
+const activeSection = computed(() => aboutSections[activeIndex.value])
+
+function sectionOpacity(id: string) {
+  const section = aboutSections.find((item) => item.id === id)
+  if (!section) return 0
+  return fadeWindow(progress.value, section.copyStart, section.copyEnd)
+}
+
+function sectionCopy(id: string) {
+  return m.value.about.sections[id]
+}
+
+function goBack() {
+  void router.push({ name: 'explorer' })
+}
+
+function jumpTo(sectionProgress: number) {
+  const max = Math.max(0, document.documentElement.scrollHeight - window.innerHeight)
+  window.scrollTo({ top: max * sectionProgress, behavior: 'smooth' })
+}
+
+onMounted(() => {
+  document.documentElement.classList.add('is-explorer')
+  document.documentElement.classList.remove('is-look-locked')
+  window.scrollTo(0, 0)
+
+  if (!stage.value) return
+  trigger = ScrollTrigger.create({
+    trigger: stage.value,
+    start: 'top top',
+    end: 'bottom bottom',
+    scrub: 0.65,
+    onUpdate: (self) => {
+      progress.value = self.progress
+    },
+  })
+})
+
+onUnmounted(() => {
+  trigger?.kill()
+  trigger = null
+  document.documentElement.classList.remove('is-explorer')
+})
+</script>
+
+<template>
+  <div class="about-root explorer-root text-white">
+    <AboutCanvas :progress="progress" />
+
+    <div class="pointer-events-none fixed inset-0 z-10">
+      <div class="explorer-vignette" />
+
+      <header class="pointer-events-none absolute inset-x-0 top-0 z-30">
+        <div class="flex items-center justify-between gap-3 px-4 py-5 sm:gap-4 sm:px-6 md:px-10">
+          <button
+            type="button"
+            class="hud-text pointer-events-auto max-w-[42vw] truncate text-left text-[11px] tracking-[0.18em] uppercase sm:max-w-none sm:text-[12px] md:text-[13px]"
+            @click="goBack"
+          >
+            {{ m.brand }}
+          </button>
+          <div class="pointer-events-auto flex shrink-0 items-center gap-3 sm:gap-5">
+            <span class="hud-text hidden text-[12px] tracking-[0.24em] uppercase md:inline md:text-[13px]">
+              {{ m.about.brand }}
+            </span>
+            <LanguageToggle />
+            <button
+              type="button"
+              class="hud-link hud-underline max-w-[34vw] truncate pb-1 text-[11px] tracking-[0.18em] uppercase sm:max-w-none sm:text-[12px] md:text-[13px]"
+              @click="goBack"
+            >
+              {{ m.about.back }}
+            </button>
+          </div>
+        </div>
+      </header>
+
+      <nav
+        class="pointer-events-none fixed top-[58%] left-4 z-20 hidden w-[9.5rem] -translate-y-1/2 flex-col gap-3 lg:left-8 lg:flex lg:w-[11rem]"
+        aria-label="Secciones"
+      >
+        <button
+          v-for="(section, index) in aboutSections"
+          :key="section.id"
+          type="button"
+          class="pointer-events-auto flex items-center gap-3 text-left"
+          @click="jumpTo(section.cameraAt)"
+        >
+          <span
+            class="block h-2 w-2 shrink-0 rotate-45 transition"
+            :class="activeIndex === index ? 'bg-white/90' : 'bg-white/35'"
+          />
+          <span
+            class="truncate text-[11px] tracking-[0.18em] uppercase transition lg:text-[12px]"
+            :class="activeIndex === index ? 'hud-text' : 'hud-text-muted'"
+          >
+            {{ section.index }} {{ sectionCopy(section.id)?.name }}
+          </span>
+        </button>
+      </nav>
+
+      <div
+        class="pointer-events-none fixed top-20 left-4 z-20 sm:top-24 lg:hidden"
+        :style="{ opacity: Math.max(sectionOpacity(activeSection.id), 0.55) }"
+      >
+        <p class="hud-text-muted text-[11px] tracking-[0.28em]">{{ activeSection.index }}</p>
+        <p class="hud-text text-[13px] tracking-[0.2em] uppercase sm:text-[14px]">
+          {{ sectionCopy(activeSection.id)?.name }}
+        </p>
+      </div>
+
+      <!-- Columna única: evita que títulos EN largos se salgan de pantalla -->
+      <section
+        v-for="section in aboutSections"
+        :key="section.id"
+        class="pointer-events-none fixed inset-x-0 top-0 bottom-0 z-10 flex items-start justify-center px-4 pt-[11vh] pb-10 sm:px-8 sm:pt-[12vh] lg:justify-start lg:pl-[14rem] lg:pr-10"
+        :style="{ opacity: sectionOpacity(section.id) }"
+        :aria-hidden="sectionOpacity(section.id) < 0.08"
+      >
+        <div class="flex w-full max-w-[min(92vw,36rem)] flex-col gap-4 lg:max-w-[min(50vw,38rem)]">
+          <h2
+            class="hud-text text-[clamp(28px,4.8vw,64px)] leading-[1.08] font-medium tracking-[0.08em] uppercase break-words"
+          >
+            {{ sectionCopy(section.id)?.title }}
+          </h2>
+          <p class="hud-text-muted max-w-[38rem] text-[17px] leading-relaxed sm:text-[18px] md:text-[20px]">
+            {{ sectionCopy(section.id)?.body }}
+          </p>
+          <ul
+            v-if="sectionCopy(section.id)?.points?.length"
+            class="max-w-[38rem] space-y-3"
+          >
+            <li
+              v-for="point in sectionCopy(section.id)?.points"
+              :key="point"
+              class="hud-text flex items-start gap-3 text-[15px] leading-snug tracking-[0.02em] sm:text-[16px] md:text-[17px]"
+            >
+              <span class="mt-2 h-1.5 w-1.5 shrink-0 rotate-45 bg-white/85" />
+              <span class="min-w-0 break-words">{{ point }}</span>
+            </li>
+          </ul>
+        </div>
+      </section>
+
+      <div
+        v-show="progress < 0.08"
+        class="fixed bottom-8 left-1/2 z-20 -translate-x-1/2 text-center"
+      >
+        <div class="scroll-line mx-auto mb-3 h-12 w-px bg-white/60" />
+        <p class="hud-text-muted text-[12px] tracking-[0.28em] uppercase sm:text-[13px]">
+          {{ m.about.scrollHint }}
+        </p>
+      </div>
+
+      <div
+        class="fixed right-5 bottom-8 hidden h-28 w-px bg-white/20 md:block"
+        aria-hidden="true"
+      >
+        <div class="w-px bg-white" :style="{ height: `${progress * 100}%` }" />
+      </div>
+    </div>
+
+    <div ref="stage" class="relative h-[720vh]" aria-hidden="true" />
+  </div>
+</template>

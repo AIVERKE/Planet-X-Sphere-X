@@ -1,17 +1,18 @@
 <script setup lang="ts">
 import { computed } from 'vue'
-import { chapters } from '@/data/chapters'
+import { useLocalizedContent } from '@/composables/useLocalizedContent'
 import { useSpaceStore } from '@/stores/useSpaceStore'
 
 const store = useSpaceStore()
+const { chapters } = useLocalizedContent()
 
-const chapter = computed(() => chapters.find((item) => item.phase === store.phase) ?? chapters[0])
+const chapter = computed(() => chapters.value.find((item) => item.phase === store.phase) ?? chapters.value[0])
 
 const opacity = computed(() => {
   if (store.cameraMode === 'look') return 0.9
-  if (store.phase >= 5) return 0
-  if (store.phase < 4) return 1
-  return Math.max(0.35, 1 - (store.scrollProgress - 0.72) / 0.2)
+  // En explorar el panel izquierdo ocupa este sitio: ocultar el marcador.
+  if (store.phase >= 4) return 0
+  return 1
 })
 </script>
 

@@ -1,15 +1,15 @@
 import { computed } from 'vue'
-import { planets } from '@/data/planets'
+import { useLocalizedContent } from '@/composables/useLocalizedContent'
 import { useSpaceStore } from '@/stores/useSpaceStore'
 
 export function usePlanetSearch() {
   const store = useSpaceStore()
+  const { planets } = useLocalizedContent()
 
   const results = computed(() => {
     const query = store.query.trim().toLowerCase()
-    return planets.filter((planet) => {
-      if (store.filter !== 'todos' && planet.category !== store.filter) return false
-      if (!query) return true
+    if (!query) return planets.value
+    return planets.value.filter((planet) => {
       const haystack = [
         planet.name,
         planet.type,

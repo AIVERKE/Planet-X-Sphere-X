@@ -14,6 +14,9 @@ export const useSpaceStore = defineStore('space', () => {
   const railNonce = ref(0)
   const railTarget = ref<number | null>(null)
   const ascentNonce = ref(0)
+  const descentNonce = ref(0)
+  /** Override visual rail during ascend/descend tweens (null = use normal rules). */
+  const visualOverride = ref<number | null>(null)
   const skyReady = ref(false)
   const lookingAtSky = ref(false)
   const skyGaze = ref(0)
@@ -62,6 +65,11 @@ export const useSpaceStore = defineStore('space', () => {
     ascentNonce.value += 1
   }
 
+  function requestDescent() {
+    if (cameraMode.value === 'look') return
+    descentNonce.value += 1
+  }
+
   function reset() {
     scrollProgress.value = 0
     activePlanetId.value = 'earth'
@@ -70,6 +78,7 @@ export const useSpaceStore = defineStore('space', () => {
     cameraMode.value = 'look'
     approach.value = 'orbit'
     railTarget.value = null
+    visualOverride.value = null
     lookingAtSky.value = false
     skyGaze.value = 0
   }
@@ -85,6 +94,8 @@ export const useSpaceStore = defineStore('space', () => {
     railNonce,
     railTarget,
     ascentNonce,
+    descentNonce,
+    visualOverride,
     skyReady,
     lookingAtSky,
     skyGaze,
@@ -96,6 +107,7 @@ export const useSpaceStore = defineStore('space', () => {
     requestTravel,
     requestRail,
     requestAscent,
+    requestDescent,
     reset,
   }
 })

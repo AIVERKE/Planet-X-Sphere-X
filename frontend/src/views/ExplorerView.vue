@@ -6,16 +6,14 @@ import HudNav from '@/components/explorer/HudNav.vue'
 import GuideLines from '@/components/explorer/GuideLines.vue'
 import ChapterMarker from '@/components/explorer/ChapterMarker.vue'
 import EditorialCopy from '@/components/explorer/EditorialCopy.vue'
-import WorldMarker from '@/components/explorer/WorldMarker.vue'
-import HotspotLabel from '@/components/explorer/HotspotLabel.vue'
 import PlanetExplorerHUD from '@/components/explorer/PlanetExplorerHUD.vue'
 import SpherexMissionSection from '@/components/explorer/SpherexMissionSection.vue'
-import { worldMarkers } from '@/data/worldMarkers'
-import { planets } from '@/data/planets'
+import { useI18n } from '@/composables/useI18n'
 import { useSpaceStore } from '@/stores/useSpaceStore'
 import '@/styles/explorer.css'
 
 const store = useSpaceStore()
+const { m } = useI18n()
 
 if (typeof document !== 'undefined') {
   document.documentElement.classList.add('is-explorer')
@@ -23,9 +21,9 @@ if (typeof document !== 'undefined') {
 
 const hint = computed(() => {
   if (store.cameraMode !== 'look') return ''
-  if (!store.skyReady) return 'Cargando paisaje…'
-  if (store.lookingAtSky) return 'Mantén la vista al cielo 2 segundos…'
-  return 'Arrastra para mirar · mira arriba al cielo para ascender'
+  if (!store.skyReady) return m.value.look.loading
+  if (store.lookingAtSky) return m.value.look.lookingSky
+  return m.value.look.dragHint
 })
 
 function onKey(event: KeyboardEvent) {
@@ -60,15 +58,6 @@ onUnmounted(() => {
       <GuideLines />
       <ChapterMarker />
       <EditorialCopy />
-      <WorldMarker v-for="marker in worldMarkers" :key="marker.id" :marker="marker" />
-      <template v-for="planet in planets" :key="planet.id">
-        <HotspotLabel
-          v-for="hotspot in planet.hotspots"
-          :key="hotspot.id"
-          :planet-id="planet.id"
-          :hotspot="hotspot"
-        />
-      </template>
       <PlanetExplorerHUD />
       <SpherexMissionSection />
 
@@ -88,7 +77,7 @@ onUnmounted(() => {
           class="hud-link hud-underline pointer-events-auto pb-1 text-[10px] tracking-[0.22em] uppercase"
           @click="store.requestAscent()"
         >
-          Ascender al espacio
+          {{ m.look.ascend }}
         </button>
       </div>
 
@@ -97,7 +86,9 @@ onUnmounted(() => {
         class="fixed bottom-8 left-1/2 -translate-x-1/2 text-center"
       >
         <div class="scroll-line mx-auto mb-3 h-12 w-px bg-white/60" />
-        <p class="hud-text-muted text-[11px] tracking-[0.32em] uppercase">Desliza para continuar</p>
+        <p class="hud-text-muted text-[11px] tracking-[0.32em] uppercase">
+          {{ m.scroll.continue }}
+        </p>
       </div>
 
       <div

@@ -1,13 +1,16 @@
 <script setup lang="ts">
 import { computed } from 'vue'
-import { chapters } from '@/data/chapters'
+import { useI18n } from '@/composables/useI18n'
+import { useLocalizedContent } from '@/composables/useLocalizedContent'
 import { useSpaceStore } from '@/stores/useSpaceStore'
 import { fadeWindow } from '@/utils/fadeWindow'
 
 const store = useSpaceStore()
+const { m } = useI18n()
+const { chapters } = useLocalizedContent()
 
 const lookOpacity = computed(() => (store.cameraMode === 'look' && store.skyReady ? 1 : 0))
-const chapter = computed(() => chapters.find((item) => item.phase === store.phase) ?? chapters[0])
+const chapter = computed(() => chapters.value.find((item) => item.phase === store.phase) ?? chapters.value[0])
 const copyOpacity = computed(() => {
   if (store.cameraMode === 'look' || store.phase >= 4) return 0
   return fadeWindow(store.scrollProgress, chapter.value.copyStart, chapter.value.copyEnd)
@@ -20,7 +23,7 @@ const copyOpacity = computed(() => {
     :style="{ opacity: lookOpacity }"
   >
     <h1 class="hud-text text-center text-[clamp(18px,3.2vw,42px)] font-medium tracking-[0.22em] uppercase">
-      Planet X and SPHEREx
+      {{ m.brand }}
     </h1>
   </div>
 

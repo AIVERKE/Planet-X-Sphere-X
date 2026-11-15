@@ -1,6 +1,8 @@
 <script setup lang="ts">
 import { onMounted, onUnmounted, ref, shallowRef } from 'vue'
 import { useRouter } from 'vue-router'
+import LanguageToggle from '@/components/common/LanguageToggle.vue'
+import { useI18n } from '@/composables/useI18n'
 import {
   loadAladinLite,
   type AladinInstance,
@@ -8,6 +10,7 @@ import {
 import '@/styles/explorer.css'
 
 const router = useRouter()
+const { m } = useI18n()
 const host = ref<HTMLElement | null>(null)
 const status = ref<'loading' | 'ready' | 'error'>('loading')
 const errorMessage = ref('')
@@ -60,7 +63,7 @@ async function boot() {
   } catch (error) {
     status.value = 'error'
     errorMessage.value =
-      error instanceof Error ? error.message : 'No se pudo cargar Aladin Lite'
+      error instanceof Error ? error.message : m.value.mission.errorFallback
   }
 }
 
@@ -92,25 +95,28 @@ onUnmounted(() => {
       id="aladin-lite-host"
       ref="host"
       class="absolute inset-0 h-full w-full"
-      aria-label="Explorador Aladin Lite"
+      :aria-label="m.mission.aladinAria"
     />
 
     <header class="pointer-events-none absolute inset-x-0 top-0 z-20 flex items-start justify-between gap-4 p-5 md:p-8">
       <div>
         <p class="hud-text-muted text-[10px] tracking-[0.32em] uppercase">
-          Misión · Planet X and SPHEREx
+          {{ m.mission.eyebrow }}
         </p>
         <h1 class="hud-text mt-2 text-[clamp(18px,2.4vw,28px)] tracking-[0.12em] uppercase">
-          Espacio exterior
+          {{ m.mission.title }}
         </h1>
       </div>
-      <button
-        type="button"
-        class="hud-link hud-underline pointer-events-auto pb-1 text-[11px] tracking-[0.24em] uppercase"
-        @click="goBack"
-      >
-        Volver al recorrido
-      </button>
+      <div class="pointer-events-auto flex flex-col items-end gap-3">
+        <LanguageToggle />
+        <button
+          type="button"
+          class="hud-link hud-underline pb-1 text-[11px] tracking-[0.24em] uppercase"
+          @click="goBack"
+        >
+          {{ m.mission.back }}
+        </button>
+      </div>
     </header>
 
     <div
@@ -118,7 +124,7 @@ onUnmounted(() => {
       class="pointer-events-none absolute inset-0 z-10 grid place-items-center bg-black/70"
     >
       <p class="hud-text text-[12px] tracking-[0.28em] uppercase">
-        Cargando Aladin Lite…
+        {{ m.mission.loading }}
       </p>
     </div>
 
@@ -128,7 +134,7 @@ onUnmounted(() => {
     >
       <div class="max-w-md text-center">
         <p class="hud-text text-[13px] tracking-[0.2em] uppercase">
-          No se pudo iniciar el explorador
+          {{ m.mission.errorTitle }}
         </p>
         <p class="hud-text-muted mt-3 text-sm leading-relaxed">
           {{ errorMessage }}
@@ -138,7 +144,7 @@ onUnmounted(() => {
           class="hud-link hud-underline mt-6 pb-1 text-[11px] tracking-[0.22em] uppercase"
           @click="boot"
         >
-          Reintentar
+          {{ m.mission.retry }}
         </button>
       </div>
     </div>
@@ -147,7 +153,7 @@ onUnmounted(() => {
       v-if="status === 'ready'"
       class="pointer-events-none absolute bottom-6 left-1/2 z-20 -translate-x-1/2 text-center hud-text-muted text-[10px] tracking-[0.22em] uppercase"
     >
-      Arrastra para explorar · rueda para acercar (tiles HiPS infinitos)
+      {{ m.mission.hint }}
     </p>
   </div>
 </template>
