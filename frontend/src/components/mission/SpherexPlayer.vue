@@ -11,8 +11,20 @@ import { panstarrsColorJpeg } from '@/services/panstarrs'
 import { useFramePlayer } from '@/composables/useFramePlayer'
 import { enhanceJpegToHd } from '@/utils/enhanceJpeg'
 import { mjdToIso, shortObsId } from '@/utils/skyFormat'
+import { useI18n } from '@/composables/useI18n'
 
 const DETECTORS = ['D1', 'D2', 'D3', 'D4', 'D5', 'D6'] as const
+
+function fmt(template: string, vars: Record<string, string | number>) {
+  return Object.entries(vars).reduce(
+    (text, [key, value]) => text.replaceAll(`{${key}}`, String(value)),
+    template,
+  )
+}
+
+const { m } = useI18n()
+const ui = computed(() => m.value.mission.ui)
+const p = computed(() => m.value.mission.player)
 
 type BlinkSource = 'spherex' | 'wise' | 'panstarrs'
 
@@ -54,7 +66,7 @@ const loadedImages = ref(0)
 const hdReady = ref(0)
 const skipped = ref(0)
 const errorMessage = ref('')
-const metaHint = ref('Consultando IRSA…')
+const metaHint = ref('')
 const spherexError = ref('')
 const reloading = ref(false)
 /** Segundos en la espera SPHEREx (IRSA puede demorar). */
@@ -84,10 +96,11 @@ const progress = computed(() => {
 
 const kindLine = computed(() => {
   const kind = props.objectType || ''
-  if (kind === 'variable_star') return 'Estrella variable: mira el brillo, no el sitio'
-  if (kind === 'survey_region') return 'Campo infrarrojo: cada mancha es una fuente'
-  if (kind) return 'Fuente puntual: cabe en una muestra de SPHEREx'
-  return 'Cada mancha es una medida infrarroja'
+  const copy = p.value.kind
+  if (kind === 'variable_star') return copy.variableStar
+  if (kind === 'survey_region') return copy.surveyRegion
+  if (kind) return copy.pointSource
+  return copy.defaultLine
 })
 
 const showWaitPanel = computed(
@@ -99,63 +112,85 @@ const showWaitPanel = computed(
 
 const waitExplain = computed(() => {
   const s = waitSeconds.value
+  const wait = p.value.wait
   if (phase.value === 'images') {
-    return `Ya hay lista de visitas. Bajando fotos del satélite (${loadedImages.value}/${Math.max(frames.value.length, 1)}).`
+    return fmt(wait.explainImages, {
+      loaded: loadedImages.value,
+      total: Math.max(frames.value.length, 1),
+    })
   }
-  if (s < 8) {
-    return 'Consultando el catálogo IRSA de SPHEREx. La primera respuesta suele tardar.'
-  }
-  if (s < 20) {
-    return 'IRSA sigue ocupado. No está roto: a veces tarda 20–40 s en listar las visitas.'
-  }
-  return 'La espera va larga. Puedes seguir o pasar ya a WISE (movimiento entre épocas).'
+  if (s < 8) return wait.explainCatalogEarly
+  if (s < 20) return wait.explainCatalogMid
+  return wait.explainCatalogLate
 })
 
 const waitStepLabel = computed(() => {
-  if (phase.value === 'images') return 'Paso 2/2 · bajando PNG'
-  return 'Paso 1/2 · listando visitas en IRSA'
+  const wait = p.value.wait
+  if (phase.value === 'images') return wait.stepDownloadPng
+  return wait.stepListVisits
 })
 
+const waitClockLine = computed(() =>
+  fmt(p.value.wait.clock, { seconds: waitSeconds.value }),
+)
+
 const scaleLine = computed(() => {
-  if (source.value === 'panstarrs') return 'PanSTARRS · 1 foto óptica (no es blink)'
+  const scale = p.value.scale
+  if (source.value === 'panstarrs') return scale.panstarrs
   if (source.value === 'wise') {
-    return wiseIsFallback.value
-      ? 'WISE · épocas time-resolved (respaldo)'
-      : 'WISE · épocas time-resolved (WiseView)'
+    return wiseIsFallback.value ? scale.wiseFallback : scale.wise
   }
-  return 'SPHEREx · mira el cambio entre fechas'
+  return scale.spherex
 })
 
 const sourceBanner = computed(() => {
+  const banner = p.value.banner
   if (source.value === 'spherex') {
     return {
-      title: 'Viendo: SPHEREx',
-      body: 'Fuente principal de la misión.',
+      title: banner.spherexTitle,
+      body: banner.spherexBody,
       tone: 'ok' as const,
     }
   }
   if (source.value === 'wise') {
     if (wiseIsFallback.value) {
       const localHint = nearBarnardOffline(props.ra, props.dec)
-        ? 'IRSA no respondió; si falla otra vez, prueba Barnard (tiene caché local).'
-        : 'IRSA caído: SPHEREx offline solo tiene caché de Barnard. Aquí usamos WISE time-resolved (WiseView) para ver movimiento real.'
+        ? banner.wiseFallbackBarnard
+        : banner.wiseFallbackDefault
       return {
-        title: 'Viendo: WISE (respaldo)',
+        title: banner.wiseFallbackTitle,
         body: localHint,
         tone: 'warn' as const,
       }
     }
     return {
-      title: 'Viendo: WISE',
-      body: 'Épocas time-resolved (WiseView/unWISE): cada cuadro es otra ventana de años. Ahí se ve el movimiento propio. Aladin es DSS óptico; WISE es IR.',
+      title: banner.wiseTitle,
+      body: banner.wiseBody,
       tone: 'ok' as const,
     }
   }
   return {
-    title: 'Viendo: PanSTARRS (1 foto)',
-    body: 'No es multi-época: WISE/SPHEREx no cargaron. Pulsa WISE para cargar épocas time-resolved con movimiento real.',
+    title: banner.panstarrsTitle,
+    body: banner.panstarrsBody,
     tone: 'warn' as const,
   }
+})
+
+const coordsLine = computed(() =>
+  fmt(p.value.controls.coordsLine, {
+    ra: props.ra.toFixed(5),
+    decSign: props.dec >= 0 ? '+' : '',
+    dec: props.dec.toFixed(5),
+  }),
+)
+
+const framePickLabel = computed(() => {
+  const label =
+    source.value === 'spherex' ? p.value.controls.visit : p.value.controls.epochLabel
+  return `${label} ${fmt(p.value.controls.frameOf, {
+    index: index.value + 1,
+    total: frames.value.length,
+  })}`
 })
 
 const imgZoomStyle = computed(() => ({
@@ -177,38 +212,41 @@ function isIrsaOutage(error: unknown): boolean {
 
 function classify(error: unknown): string {
   const msg = error instanceof Error ? error.message : ''
+  const errs = p.value.errors
   if (msg.includes('HTTP 404')) {
-    return 'No hay capturas SPHEREx en este punto.'
+    return errs.noCaptures404
   }
   if (isIrsaOutage(error)) {
-    return 'SPHEREx no responde ahora. Prueba otra vez en unos segundos.'
+    return errs.irsaOutage
   }
-  return 'No se pudo cargar SPHEREx ahora.'
+  return errs.loadFailed
 }
 
 function preloadOne(src: string): Promise<void> {
   return new Promise((resolve, reject) => {
     const image = new Image()
     image.onload = () => resolve()
-    image.onerror = () => reject(new Error('No se pudo cargar un cuadro PNG'))
+    image.onerror = () => reject(new Error(p.value.errors.pngFrame))
     image.src = src
   })
 }
 
 function toSpherexFrames(list: SpherexFrame[]): BlinkFrame[] {
+  const tags = p.value.tags
   return list.map((frame) => ({
     id: frame.obs_id,
     band: frame.band,
     caption: `${mjdToIso(frame.t_min)} · MJD ${Number.isFinite(frame.t_min) ? frame.t_min.toFixed(2) : '—'} · ${frame.band} · ${shortObsId(frame.obs_id)}`,
     leftSrc: apiUrl(frame.png_url),
     rightSrc: apiUrl(frame.png_url_hd || frame.png_url),
-    leftTag: 'SPHEREx · satélite',
-    rightTag: 'HD fluido · misma fecha',
-    rightCaption: 'Misma foto · más suave',
+    leftTag: tags.spherexSatellite,
+    rightTag: tags.hdSameDate,
+    rightCaption: tags.samePhotoSmoother,
   }))
 }
 
 function toWiseFrames(stamps: EpochStamp[]): BlinkFrame[] {
+  const tags = p.value.tags
   return stamps.map((stamp) => {
     const mjd =
       stamp.mjd != null && Number.isFinite(stamp.mjd) ? ` · MJD ${stamp.mjd.toFixed(1)}` : ''
@@ -219,9 +257,9 @@ function toWiseFrames(stamps: EpochStamp[]): BlinkFrame[] {
       leftSrc: stamp.jpegUrl,
       // Se sustituye por blob HD en warmHd; mientras tanto el crudo.
       rightSrc: stamp.jpegUrl,
-      leftTag: `WISE · satélite`,
-      rightTag: 'HD fluido · misma fecha',
-      rightCaption: 'Misma época · más suave',
+      leftTag: tags.wiseSatellite,
+      rightTag: tags.hdSameDate,
+      rightCaption: tags.sameEpochSmoother,
     }
   })
 }
@@ -246,9 +284,9 @@ function startWaitTicker() {
     if (phase.value === 'meta' && source.value === 'spherex') {
       const s = waitSeconds.value
       if (s === 8) {
-        metaHint.value = 'IRSA sigue buscando visitas SPHEREx…'
+        metaHint.value = p.value.wait.metaIrsaSearching
       } else if (s === 20) {
-        metaHint.value = 'Tarda más de lo normal · puedes usar WISE'
+        metaHint.value = p.value.wait.metaSlow
       }
     }
   }, 1000)
@@ -258,9 +296,7 @@ function startWaitTicker() {
 async function useWiseNow(asFallback = true) {
   const token = ++loadToken
   stopWaitTicker()
-  spherexError.value = asFallback
-    ? 'Pasaste a WISE sin esperar a SPHEREx.'
-    : ''
+  spherexError.value = asFallback ? p.value.errors.switchedToWise : ''
   errorMessage.value = ''
   frames.value = []
   availableBands.value = []
@@ -270,7 +306,9 @@ async function useWiseNow(asFallback = true) {
   source.value = 'wise'
   preferredSource.value = 'wise'
   wiseIsFallback.value = asFallback
-  metaHint.value = asFallback ? 'Cargando WISE (sin esperar SPHEREx)…' : 'Cargando WISE…'
+  metaHint.value = asFallback
+    ? p.value.meta.loadingWiseSkipSpherex
+    : p.value.meta.loadingWise
   startWaitTicker()
   try {
     await loadWiseWithRetry(token, asFallback)
@@ -283,7 +321,7 @@ async function useWiseNow(asFallback = true) {
     } catch {
       if (token !== loadToken) return
       stopWaitTicker()
-      errorMessage.value = 'No se pudo cargar WISE time-resolved. Revisa el backend / WiseView.'
+      errorMessage.value = p.value.errors.wiseLoadFailed
       phase.value = 'error'
       reloading.value = false
       source.value = 'spherex'
@@ -363,7 +401,9 @@ async function warmHd(frameList: BlinkFrame[], token: number) {
 }
 
 async function loadWiseFallback(token: number, asFallback = true) {
-  metaHint.value = asFallback ? 'Cargando WISE time-resolved (WiseView)…' : 'Cargando WISE…'
+  metaHint.value = asFallback
+    ? p.value.meta.loadingWiseWiseview
+    : p.value.meta.loadingWise
   const stamps = await fetchUnwiseEpochStamps(props.ra, props.dec, 160)
   if (token !== loadToken) return
   const mapped = toWiseFrames(stamps)
@@ -391,7 +431,7 @@ async function loadWiseWithRetry(token: number, asFallback = true) {
     await loadWiseFallback(token, asFallback)
   } catch {
     if (token !== loadToken) return
-    metaHint.value = 'Reintentando WISE time-resolved…'
+    metaHint.value = p.value.meta.retryingWise
     await sleep(500)
     if (token !== loadToken) return
     await loadWiseFallback(token, asFallback)
@@ -399,7 +439,7 @@ async function loadWiseWithRetry(token: number, asFallback = true) {
 }
 
 async function loadPanstarrsFallback(token: number) {
-  metaHint.value = 'Último recurso: PanSTARRS óptico (1 foto, sin épocas)…'
+  metaHint.value = p.value.meta.panstarrsLastResort
   const sizePx = Math.round(((props.cutoutSize ?? 0.08) * 3600) / 0.25)
   const url = await panstarrsColorJpeg(props.ra, props.dec, Math.min(900, Math.max(256, sizePx)))
   if (token !== loadToken) return
@@ -409,16 +449,17 @@ async function loadPanstarrsFallback(token: number) {
   saturation.value = 120
   availableBands.value = []
   matched.value = 1
+  const tags = p.value.tags
   const mapped: BlinkFrame[] = [
     {
       id: 'panstarrs',
       band: 'yig',
-      caption: 'PanSTARRS stack · 1 foto (no es WISE/SPHEREx)',
+      caption: p.value.captions.panstarrsStack,
       leftSrc: url,
       rightSrc: url,
-      leftTag: 'PanSTARRS · óptico',
-      rightTag: 'Misma foto · más suave',
-      rightCaption: 'No hay secuencia temporal aquí',
+      leftTag: tags.panstarrsOptical,
+      rightTag: tags.samePhotoSmoother,
+      rightCaption: tags.noTemporalSequence,
     },
   ]
   frames.value = mapped
@@ -438,7 +479,10 @@ async function loadSpherex(token: number) {
   contrast.value = 110
   imgZoom.value = 100
   spherexError.value = ''
-  metaHint.value = `Listando visitas SPHEREx · AR ${props.ra.toFixed(3)}° · Dec ${props.dec.toFixed(3)}°`
+  metaHint.value = fmt(p.value.meta.listingVisits, {
+    ra: props.ra.toFixed(3),
+    dec: props.dec.toFixed(3),
+  })
   const result = await fetchSpherexFrames({
     ra: props.ra,
     dec: props.dec,
@@ -455,7 +499,7 @@ async function loadSpherex(token: number) {
     frames.value = mapped
     phase.value = 'images'
   }
-  metaHint.value = `Bajando fotos · ${result.returned} visitas en este punto`
+  metaHint.value = fmt(p.value.meta.downloadingVisits, { count: result.returned })
   let started = false
   const ok = await Promise.all(
     mapped.map(async (frame) => {
@@ -480,7 +524,7 @@ async function loadSpherex(token: number) {
   if (token !== loadToken) return
   const usable = mapped.filter((_, i) => ok[i])
   skipped.value = mapped.length - usable.length
-  if (!usable.length) throw new Error('No se pudo cargar ningún cuadro PNG')
+  if (!usable.length) throw new Error(p.value.errors.noPngLoaded)
   frames.value = usable
   source.value = 'spherex'
   phase.value = 'ready'
@@ -503,6 +547,7 @@ async function load(preferSpherex = true) {
     reloading.value = false
     frames.value = []
     phase.value = 'meta'
+    metaHint.value = ui.value.queryingIrsa
   }
   startWaitTicker()
 
@@ -514,7 +559,7 @@ async function load(preferSpherex = true) {
     } catch (error) {
       if (token !== loadToken) return
       spherexError.value = classify(error)
-      metaHint.value = 'SPHEREx no respondió a tiempo · pasando a WISE time-resolved…'
+      metaHint.value = p.value.meta.spherexTimeoutToWise
       try {
         await loadWiseWithRetry(token)
         if (token === loadToken) stopWaitTicker()
@@ -597,45 +642,59 @@ const sourceSwitchDisabled = computed(
 /** Etiqueta corta del botón junto a ms. */
 const paceButtonLabel = computed(() => {
   const n = frames.value.length
-  if (source.value === 'spherex') return `${n} visitas · ¿qué es cada foto?`
-  if (source.value === 'wise') return `${n} épocas WISE · ¿qué es cada foto?`
-  return '¿Qué es cada foto?'
+  const pace = p.value.pace
+  if (source.value === 'spherex') return fmt(pace.visitsWhatIsPhoto, { n })
+  if (source.value === 'wise') return fmt(pace.epochsWhatIsPhoto, { n })
+  return pace.whatIsPhoto
 })
 
 const paceNowLine = computed(() => {
   const n = frames.value.length
   const wait = msPerFrame.value
+  const pace = p.value.pace
   if (source.value === 'spherex') {
     const bandLabel = band.value || active.value?.band || 'Dx'
     const archive =
-      matched.value > n ? ` En el archivo IRSA hay ${matched.value} visitas; aquí cargamos ${n}.` : ''
-    return `Ahora ves SPHEREx: ${n} fotos del detector ${bandLabel}, una por fecha de visita.${archive} El valor ms (${wait}) es la pausa entre visitas en el blink.`
+      matched.value > n
+        ? fmt(pace.archiveExtra, { matched: matched.value, n })
+        : ''
+    return fmt(pace.nowSpherex, { n, band: bandLabel, archive, ms: wait })
   }
   if (source.value === 'wise') {
-    const why = wiseIsFallback.value ? ' (respaldo porque SPHEREx no respondió)' : ' (lo elegiste en el switch)'
-    return `Ahora ves WISE${why}: ${n} épocas time-resolved (WiseView). Cada foto es otra ventana temporal — el objeto que se mueve es real, no un coadd acumulativo. El valor ms (${wait}) es la pausa del blink.`
+    const template = wiseIsFallback.value ? pace.nowWiseFallback : pace.nowWiseChosen
+    return fmt(template, { n, ms: wait })
   }
-  return 'Ahora ves una foto fija del campo (sin secuencia temporal).'
+  return pace.nowFixed
 })
+
+const enlargeModalTitle = computed(() => {
+  if (source.value === 'wise') return 'WISE'
+  if (source.value === 'panstarrs') return p.value.enlarge.fieldTitle
+  return 'SPHEREx'
+})
+
+const hdProgressLine = computed(() =>
+  fmt(p.value.controls.hdProgress, {
+    ready: hdReady.value,
+    total: frames.value.length,
+  }),
+)
 
 /** Textos didácticos de cada control (valen igual en SPHEREx y WISE). */
 const controlGuide = computed(() => {
   const spherex = source.value === 'spherex'
   const n = frames.value.length
+  const guide = p.value.pace.guide
   return {
-    epochs: spherex
-      ? 'Épocas / visitas: cada paso es una foto SPHEREx de otra fecha (misma banda D1–D6). Mueve el slider o usa Anterior/Siguiente para comparar.'
-      : 'Épocas WISE time-resolved: cada paso es otra ventana temporal (WiseView). En objetivos de Movimiento deberías ver el salto de posición.',
-    ms: `Intervalo del blink (${msPerFrame.value} ms): velocidad de la animación al dar Play. No elige la época: solo cuánto espera entre un cuadro y el siguiente (como en WiseView).`,
+    epochs: spherex ? guide.epochsSpherex : guide.epochsWise,
+    ms: fmt(guide.ms, { ms: msPerFrame.value }),
     epochsPick: spherex
-      ? 'Esto elige qué visita SPHEREx estás viendo (1, 2, 3…). No es la velocidad del blink.'
-      : `Esto elige qué época WISE estás viendo (1 de ${n || 8}…). No es la velocidad del blink.`,
-    saturation:
-      'Saturación: intensidad del color. Más bajo = más gris; más alto = naranjas/rojos IR más vivos. Sirve igual en SPHEREx y WISE.',
-    contrast:
-      'Contraste: diferencia entre zonas claras y oscuras. Súbelo si la estrella se pierde en el ruido; bájalo si el centro se quema en blanco.',
-    zoom: 'Zoom: acerca el recorte para ver el desplazamiento. En SPHEREx mira el núcleo; en WISE el salto entre épocas.',
-    duo: 'Izquierda = foto del satélite (cruda). Derecha = la misma fecha, más suave (HD). Las dos cambian juntas al pasar de época.',
+      ? guide.epochsPickSpherex
+      : fmt(guide.epochsPickWise, { n: n || 8 }),
+    saturation: guide.saturation,
+    contrast: guide.contrast,
+    zoom: guide.zoom,
+    duo: guide.duo,
   }
 })
 
@@ -715,11 +774,11 @@ onBeforeUnmount(() => {
   <div class="player" :class="`player--${source}`">
     <p class="player__lead">{{ kindLine }} · {{ scaleLine }}</p>
     <p v-if="note" class="player__note">{{ note }}</p>
-    <p class="player__coords" title="Mismas coordenadas que el rectángulo del atlas">
-      Fotos en AR {{ ra.toFixed(5) }}° · Dec {{ dec >= 0 ? '+' : '' }}{{ dec.toFixed(5) }}°
+    <p class="player__coords" :title="p.controls.coordsTitle">
+      {{ coordsLine }}
     </p>
 
-    <div class="player__switch" role="tablist" aria-label="Fuente del blink">
+    <div class="player__switch" role="tablist" :aria-label="p.controls.blinkSourceAria">
       <button
         type="button"
         class="player__switch-btn"
@@ -755,11 +814,11 @@ onBeforeUnmount(() => {
         class="player__go player__source-btn"
         @click="retrySpherex"
       >
-        Probar SPHEREx
+        {{ p.controls.trySpherex }}
       </button>
     </aside>
 
-    <div v-if="source === 'spherex'" class="player__bands" role="group" aria-label="Detector">
+    <div v-if="source === 'spherex'" class="player__bands" role="group" :aria-label="p.controls.detectorAria">
       <button
         v-for="code in DETECTORS"
         :key="code"
@@ -790,7 +849,7 @@ onBeforeUnmount(() => {
       >
         <span :style="{ width: `${progress}%` }" />
       </div>
-      <p class="player__wait-clock">{{ waitSeconds }} s en espera</p>
+      <p class="player__wait-clock">{{ waitClockLine }}</p>
       <div class="player__wait-actions">
         <button
           v-if="source === 'spherex' || reloading"
@@ -798,28 +857,31 @@ onBeforeUnmount(() => {
           class="player__go"
           @click="() => useWiseNow(true)"
         >
-          Usar WISE ahora
+          {{ p.controls.useWiseNow }}
         </button>
-        <button type="button" class="player__step" @click="retrySpherex">Reintentar SPHEREx</button>
+        <button type="button" class="player__step" @click="retrySpherex">
+          {{ p.controls.retrySpherex }}
+        </button>
       </div>
       <p class="player__wait-note">
-        Si IRSA no contesta, el blink pasa a WISE time-resolved (WiseView): cada época es otra
-        ventana temporal real, con MJD propio.
+        {{ p.wait.note }}
       </p>
     </div>
     <div v-else-if="phase === 'error'" class="player__err">
       <p>{{ errorMessage }}</p>
       <div class="player__wait-actions">
-        <button type="button" class="player__go" @click="retrySpherex">Probar SPHEREx</button>
-        <button type="button" class="player__step" @click="() => useWiseNow(true)">Usar WISE</button>
+        <button type="button" class="player__go" @click="retrySpherex">{{ p.controls.trySpherex }}</button>
+        <button type="button" class="player__step" @click="() => useWiseNow(true)">
+          {{ p.controls.useWise }}
+        </button>
       </div>
     </div>
     <p v-else-if="reloading && active" class="player__meta">{{ metaHint }}</p>
 
     <template v-if="active && phase !== 'error'">
-      <div class="player__zoom player__zoom--top" aria-label="Zoom de las fotos">
-        <span>Zoom</span>
-        <button type="button" class="player__zoom-btn" title="Alejar" @click="nudgeZoom(-20)">−</button>
+      <div class="player__zoom player__zoom--top" :aria-label="p.controls.zoom">
+        <span>{{ p.controls.zoom }}</span>
+        <button type="button" class="player__zoom-btn" :title="ui.zoomOut" @click="nudgeZoom(-20)">−</button>
         <input
           v-model.number="imgZoom"
           type="range"
@@ -828,7 +890,7 @@ onBeforeUnmount(() => {
           step="10"
           :aria-valuenow="imgZoom"
         />
-        <button type="button" class="player__zoom-btn" title="Acercar" @click="nudgeZoom(20)">+</button>
+        <button type="button" class="player__zoom-btn" :title="ui.zoomIn" @click="nudgeZoom(20)">+</button>
         <em>{{ imgZoom }}%</em>
         <button
           v-if="imgZoom !== 100"
@@ -843,7 +905,7 @@ onBeforeUnmount(() => {
       <div
         class="player__duo"
         :style="duoSatStyle"
-        aria-label="Satélite a la izquierda, HD fluido a la derecha. Clic para ampliar."
+        :aria-label="p.controls.zoomDuoAria"
         role="button"
         tabindex="0"
         @click="openEnlarge"
@@ -863,8 +925,8 @@ onBeforeUnmount(() => {
           </div>
           <figcaption>
             <template v-if="hdReady < frames.length">
-              HD {{ hdReady }}/{{ frames.length }}
-              <template v-if="active.rightSrc === active.leftSrc"> · suavizando…</template>
+              {{ hdProgressLine }}
+              <template v-if="active.rightSrc === active.leftSrc">{{ p.controls.smoothing }}</template>
             </template>
             <template v-else>{{ active.rightCaption }}</template>
           </figcaption>
@@ -873,27 +935,27 @@ onBeforeUnmount(() => {
 
       <div class="player__enlarge-row">
         <button type="button" class="player__go player__enlarge-btn" @click.stop="openEnlarge">
-          Ver en grande
+          {{ p.controls.viewEnlarge }}
         </button>
       </div>
 
       <div class="player__controls">
         <button type="button" class="player__go" :disabled="frames.length < 2" @click="toggle()">
-          {{ playing ? 'Pausa' : 'Play' }}
+          {{ playing ? p.controls.pause : p.controls.play }}
         </button>
         <button type="button" class="player__step" :disabled="!frames.length" @click="prev()">
-          Anterior
+          {{ p.controls.previous }}
         </button>
         <button type="button" class="player__step" :disabled="!frames.length" @click="next()">
-          Siguiente
+          {{ p.controls.next }}
         </button>
         <button
           type="button"
           class="player__step"
-          title="Centrar el atlas Aladin en este campo"
+          :title="p.controls.atlasTitle"
           @click="focusOnSky"
         >
-          Atlas
+          {{ p.controls.atlas }}
         </button>
         <button
           type="button"
@@ -908,8 +970,7 @@ onBeforeUnmount(() => {
 
       <label class="player__frame-pick" :title="controlGuide.epochsPick">
         <span class="player__frame-pick-label">
-          {{ source === 'spherex' ? 'Visita' : 'Época' }}
-          {{ index + 1 }} de {{ frames.length }}
+          {{ framePickLabel }}
         </span>
         <input
           type="range"
@@ -927,7 +988,7 @@ onBeforeUnmount(() => {
       </label>
 
       <div class="player__blink-ms" :title="controlGuide.ms">
-        <span>Intervalo del blink</span>
+        <span>{{ p.controls.blinkInterval }}</span>
         <div class="player__blink-ms-row">
           <input
             v-model.number="msPerFrame"
@@ -935,7 +996,7 @@ onBeforeUnmount(() => {
             min="200"
             max="4000"
             step="20"
-            aria-label="Intervalo del blink en milisegundos"
+            :aria-label="p.controls.blinkIntervalAria"
           />
           <label class="player__blink-ms-num">
             <input
@@ -952,7 +1013,7 @@ onBeforeUnmount(() => {
 
       <div class="player__tune">
         <label class="player__sat" :title="controlGuide.saturation">
-          <span>Saturación</span>
+          <span>{{ p.controls.saturation }}</span>
           <input
             v-model.number="saturation"
             type="range"
@@ -965,7 +1026,7 @@ onBeforeUnmount(() => {
         </label>
 
         <label class="player__sat" :title="controlGuide.contrast">
-          <span>Contraste</span>
+          <span>{{ p.controls.contrast }}</span>
           <input
             v-model.number="contrast"
             type="range"
@@ -995,18 +1056,20 @@ onBeforeUnmount(() => {
         >
           <header class="enlarge-modal__bar">
             <div>
-              <p class="enlarge-modal__kicker">Blink en grande</p>
+              <p class="enlarge-modal__kicker">{{ p.enlarge.kicker }}</p>
               <h2 id="enlarge-modal-title">
-                {{ source === 'wise' ? 'WISE' : source === 'panstarrs' ? 'Campo' : 'SPHEREx' }}
+                {{ enlargeModalTitle }}
                 · {{ index + 1 }}/{{ frames.length }}
               </h2>
             </div>
-            <button type="button" class="enlarge-modal__close" @click="closeEnlarge">Cerrar</button>
+            <button type="button" class="enlarge-modal__close" @click="closeEnlarge">
+              {{ ui.close }}
+            </button>
           </header>
 
-          <div class="enlarge-modal__zoom" aria-label="Zoom de las fotos">
-            <span>Zoom</span>
-            <button type="button" class="player__zoom-btn" title="Alejar" @click="nudgeZoom(-20)">−</button>
+          <div class="enlarge-modal__zoom" :aria-label="p.controls.zoom">
+            <span>{{ p.controls.zoom }}</span>
+            <button type="button" class="player__zoom-btn" :title="ui.zoomOut" @click="nudgeZoom(-20)">−</button>
             <input
               v-model.number="imgZoom"
               type="range"
@@ -1015,7 +1078,7 @@ onBeforeUnmount(() => {
               step="10"
               :aria-valuenow="imgZoom"
             />
-            <button type="button" class="player__zoom-btn" title="Acercar" @click="nudgeZoom(20)">+</button>
+            <button type="button" class="player__zoom-btn" :title="ui.zoomIn" @click="nudgeZoom(20)">+</button>
             <em>{{ imgZoom }}%</em>
             <button
               v-if="imgZoom !== 100"
@@ -1047,13 +1110,13 @@ onBeforeUnmount(() => {
           <div class="enlarge-modal__footer">
             <div class="enlarge-modal__tools">
               <button type="button" class="player__go" :disabled="frames.length < 2" @click="toggle()">
-                {{ playing ? 'Pausa' : 'Play' }}
+                {{ playing ? p.controls.pause : p.controls.play }}
               </button>
               <button type="button" class="player__step" :disabled="!frames.length" @click="prev()">
-                Anterior
+                {{ p.controls.previous }}
               </button>
               <button type="button" class="player__step" :disabled="!frames.length" @click="next()">
-                Siguiente
+                {{ p.controls.next }}
               </button>
               <button
                 type="button"
@@ -1061,11 +1124,16 @@ onBeforeUnmount(() => {
                 :aria-pressed="showControlHelp"
                 @click="showControlHelp = !showControlHelp"
               >
-                {{ showControlHelp ? 'Ocultar guía' : 'Cómo funciona' }}
+                {{ showControlHelp ? p.controls.hideGuide : p.controls.howItWorks }}
               </button>
             </div>
 
-            <div v-if="source === 'spherex'" class="enlarge-modal__bands" role="group" aria-label="Detector SPHEREx">
+            <div
+              v-if="source === 'spherex'"
+              class="enlarge-modal__bands"
+              role="group"
+              :aria-label="p.controls.detectorSpherexAria"
+            >
               <button
                 v-for="code in DETECTORS"
                 :key="`en-${code}`"
@@ -1084,8 +1152,7 @@ onBeforeUnmount(() => {
 
             <label class="enlarge-modal__frame-pick">
               <span>
-                {{ source === 'spherex' ? 'Visita' : 'Época' }}
-                {{ index + 1 }} de {{ frames.length }}
+                {{ framePickLabel }}
               </span>
               <input
                 type="range"
@@ -1100,7 +1167,7 @@ onBeforeUnmount(() => {
             <p v-if="showControlHelp" class="enlarge-modal__tip">{{ controlGuide.epochsPick }}</p>
 
             <div class="enlarge-modal__blink-ms">
-              <span>Intervalo del blink</span>
+              <span>{{ p.controls.blinkInterval }}</span>
               <div class="enlarge-modal__blink-ms-row">
                 <input
                   v-model.number="msPerFrame"
@@ -1108,7 +1175,7 @@ onBeforeUnmount(() => {
                   min="200"
                   max="4000"
                   step="20"
-                  aria-label="Intervalo del blink en milisegundos"
+                  :aria-label="p.controls.blinkIntervalAria"
                 />
                 <label class="enlarge-modal__blink-ms-num">
                   <input
@@ -1125,14 +1192,14 @@ onBeforeUnmount(() => {
             <p v-if="showControlHelp" class="enlarge-modal__tip">{{ controlGuide.ms }}</p>
 
             <label class="enlarge-modal__slider">
-              <span>Saturación</span>
+              <span>{{ p.controls.saturation }}</span>
               <input v-model.number="saturation" type="range" min="40" max="220" step="5" />
               <em>{{ saturation }}%</em>
             </label>
             <p v-if="showControlHelp" class="enlarge-modal__tip">{{ controlGuide.saturation }}</p>
 
             <label class="enlarge-modal__slider">
-              <span>Contraste</span>
+              <span>{{ p.controls.contrast }}</span>
               <input v-model.number="contrast" type="range" min="70" max="180" step="5" />
               <em>{{ contrast }}%</em>
             </label>
@@ -1159,11 +1226,11 @@ onBeforeUnmount(() => {
         >
           <header class="pace-modal__bar">
             <div>
-              <p class="pace-modal__kicker">Blink · fotos y fechas</p>
-              <h2 id="pace-modal-title">Qué estás viendo en cada cuadro</h2>
+              <p class="pace-modal__kicker">{{ p.paceModal.kicker }}</p>
+              <h2 id="pace-modal-title">{{ p.paceModal.title }}</h2>
             </div>
             <button type="button" class="pace-modal__close" @click="closePaceInfo">
-              Cerrar
+              {{ ui.close }}
             </button>
           </header>
 
@@ -1171,41 +1238,41 @@ onBeforeUnmount(() => {
             <p class="pace-modal__now" :class="`is-${source}`">{{ paceNowLine }}</p>
 
             <section class="pace-modal__card" :class="{ 'is-active': source === 'spherex' }">
-              <h3>SPHEREx (misión principal)</h3>
+              <h3>{{ p.paceModal.spherexTitle }}</h3>
               <ul>
-                <li>Cada cuadro es <strong>una visita real</strong>: una fecha (MJD) y un detector (D1–D6).</li>
-                <li>En un mismo punto del cielo puede haber <strong>decenas de visitas</strong> en el archivo; el blink carga un subconjunto usable (a menudo ~12).</li>
-                <li>Izquierda = PNG del satélite; derecha = la <strong>misma fecha</strong> en HD fluido.</li>
-                <li>Sirve para ver cambios entre pasadas SPHEREx, no entre años WISE.</li>
+                <li v-for="(item, i) in p.paceModal.spherexItems" :key="`spx-${i}`">{{ item }}</li>
               </ul>
             </section>
 
             <section class="pace-modal__card" :class="{ 'is-active': source === 'wise' }">
-              <h3>WISE / unWISE (WiseView)</h3>
+              <h3>{{ p.paceModal.wiseTitle }}</h3>
               <ul>
-                <li>Cada cuadro es una <strong>época time-resolved</strong> (ventana temporal estrecha), no un coadd NEO acumulativo.</li>
-                <li>En objetivos de <strong>Movimiento</strong> (WISE 0855, Barnard…) el blink muestra el salto real entre años.</li>
-                <li>Misma fuente que <strong>byw.tools/wiseview</strong>; se usa también cuando SPHEREx/IRSA no responde.</li>
-                <li>Izquierda = PNG WiseView; derecha = la misma época suavizada en HD.</li>
+                <li v-for="(item, i) in p.paceModal.wiseItems" :key="`wise-${i}`">{{ item }}</li>
               </ul>
             </section>
 
             <section class="pace-modal__card">
-              <h3>Época / visita ≠ intervalo del blink</h3>
+              <h3>{{ p.paceModal.epochVsBlinkTitle }}</h3>
               <ul>
-                <li><strong>Época o visita</strong> elige <em>qué</em> foto miras (1 de N, 2 de N…).</li>
-                <li><strong>Intervalo del blink</strong> (como en WiseView) elige <em>qué tan rápido</em> cambia al dar Play, en milisegundos.</li>
-                <li>No uses el slider de épocas para la velocidad: para eso está “Intervalo del blink (ms)”.</li>
+                <li v-for="(item, i) in p.paceModal.epochVsBlinkItems" :key="`evb-${i}`">{{ item }}</li>
               </ul>
             </section>
 
             <section class="pace-modal__card">
-              <h3>Controles de imagen (SPHEREx y WISE)</h3>
+              <h3>{{ p.paceModal.controlsTitle }}</h3>
               <ul>
-                <li><strong>Saturación:</strong> {{ controlGuide.saturation }}</li>
-                <li><strong>Contraste:</strong> {{ controlGuide.contrast }}</li>
-                <li><strong>Zoom / Ver en grande:</strong> {{ controlGuide.zoom }}</li>
-                <li><strong>Las dos fotos:</strong> {{ controlGuide.duo }}</li>
+                <li>
+                  <strong>{{ p.paceModal.controlsSaturation }}</strong> {{ controlGuide.saturation }}
+                </li>
+                <li>
+                  <strong>{{ p.paceModal.controlsContrast }}</strong> {{ controlGuide.contrast }}
+                </li>
+                <li>
+                  <strong>{{ p.paceModal.controlsZoom }}</strong> {{ controlGuide.zoom }}
+                </li>
+                <li>
+                  <strong>{{ p.paceModal.controlsDuo }}</strong> {{ controlGuide.duo }}
+                </li>
               </ul>
             </section>
           </div>

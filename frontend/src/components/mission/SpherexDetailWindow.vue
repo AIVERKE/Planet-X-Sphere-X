@@ -1,7 +1,12 @@
 <script setup lang="ts">
 import { computed, onUnmounted, ref, watch } from 'vue'
+import { useI18n } from '@/composables/useI18n'
 import { apiUrl } from '@/services/http'
 import { bandLabel, formatRaDec, mjdToHint, shortObsId } from '@/utils/skyFormat'
+
+const { m } = useI18n()
+const ui = computed(() => m.value.mission.ui)
+const detail = computed(() => m.value.mission.detail)
 
 export type DetailObs = {
   obs_id?: unknown
@@ -91,16 +96,20 @@ const metaRows = computed(() => {
   const rows: { label: string; value: string }[] = []
   const id = shortObsId(o.obs_id)
   if (id && id !== '—') rows.push({ label: 'obs_id', value: String(o.obs_id ?? id) })
-  rows.push({ label: 'Banda', value: bandLabel(o.energy_bandpassname) })
-  rows.push({ label: 'Época', value: mjdToHint(o.t_min) })
+  rows.push({ label: detail.value.band, value: bandLabel(o.energy_bandpassname) })
+  rows.push({ label: ui.value.epoch, value: mjdToHint(o.t_min) })
   if (o.t_min != null) rows.push({ label: 'MJD', value: String(o.t_min) })
   if (ra.value != null && dec.value != null) {
     rows.push({ label: 'Coords', value: formatRaDec(ra.value, dec.value) })
   }
-  if (o.facility_name) rows.push({ label: 'Facilidad', value: String(o.facility_name) })
-  if (o.instrument_name) rows.push({ label: 'Instrumento', value: String(o.instrument_name) })
-  if (o.collection) rows.push({ label: 'Colección', value: String(o.collection) })
-  rows.push({ label: 'Origen', value: 'IRSA · SPHEREx Level-2 (ObsCore)' })
+  if (o.facility_name) rows.push({ label: detail.value.facility, value: String(o.facility_name) })
+  if (o.instrument_name) {
+    rows.push({ label: detail.value.instrument, value: String(o.instrument_name) })
+  }
+  if (o.collection) {
+    rows.push({ label: detail.value.collection, value: String(o.collection) })
+  }
+  rows.push({ label: detail.value.origin, value: detail.value.originValue })
   return rows
 })
 
@@ -184,35 +193,35 @@ onUnmounted(() => window.removeEventListener('keydown', onKey))
       ref="root"
       class="detail"
       role="dialog"
-      aria-label="Detalle SPHEREx"
+      :aria-label="detail.aria"
       :style="{ transform: `translate(${pos.x}px, ${pos.y}px)`, zIndex: layer }"
     >
       <header class="detail__bar">
         <div
           class="detail__drag"
-          title="Arrastra"
+          :title="detail.drag"
           @pointerdown="onPointerDown"
           @pointermove="onPointerMove"
           @pointerup="onPointerUp"
           @pointercancel="onPointerUp"
         >
-          <p class="detail__kicker">Detalle 2D · dato real</p>
+          <p class="detail__kicker">{{ detail.kicker }}</p>
           <h2>{{ shortObsId(obs?.obs_id) }}</h2>
         </div>
         <button type="button" class="detail__close" @pointerdown.stop.prevent="closeFloat" @click.stop.prevent="closeFloat">
-          Cerrar
+          {{ ui.close }}
         </button>
       </header>
 
       <div class="detail__body">
         <div class="detail__view">
-          <div class="detail__toggle" role="group" aria-label="Estilo">
-            <button type="button" :class="{ 'is-on': !showHd }" @click="showHd = false">Crudo</button>
+          <div class="detail__toggle" role="group" :aria-label="detail.style">
+            <button type="button" :class="{ 'is-on': !showHd }" @click="showHd = false">{{ detail.raw }}</button>
             <button type="button" :class="{ 'is-on': showHd }" @click="showHd = true">HD</button>
           </div>
           <div class="detail__frame">
             <img v-if="imageSrc" :src="imageSrc" :alt="`SPHEREx ${shortObsId(obs?.obs_id)}`" />
-            <p v-else class="detail__empty">Sin cutout para esta observación</p>
+            <p v-else class="detail__empty">{{ detail.emptyCutout }}</p>
           </div>
         </div>
 

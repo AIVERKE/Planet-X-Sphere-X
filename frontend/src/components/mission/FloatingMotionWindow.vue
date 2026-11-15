@@ -1,6 +1,7 @@
 <script setup lang="ts">
-import { onUnmounted } from 'vue'
+import { computed, onUnmounted } from 'vue'
 import SpherexPlayer from '@/components/mission/SpherexPlayer.vue'
+import { useI18n } from '@/composables/useI18n'
 
 const props = defineProps<{
   open: boolean
@@ -21,6 +22,10 @@ const emit = defineEmits<{
   focusSky: [payload: { ra: number; dec: number; fovDeg: number }]
 }>()
 
+const { m } = useI18n()
+const ui = computed(() => m.value.mission.ui)
+const float = computed(() => m.value.mission.float)
+
 function closeFloat(event?: Event) {
   event?.preventDefault()
   event?.stopPropagation()
@@ -36,20 +41,20 @@ onUnmounted(() => window.removeEventListener('keydown', onKey))
 </script>
 
 <template>
-  <aside v-show="open" class="float" data-tour="interpret" aria-label="Blink SPHEREx">
+  <aside v-show="open" class="float" data-tour="interpret" :aria-label="float.aria">
     <header class="float__bar">
       <div class="float__drag">
-        <p class="float__kicker">Blink · satélite</p>
-        <h2>{{ title || 'Movimiento' }}</h2>
+        <p class="float__kicker">{{ float.kicker }}</p>
+        <h2>{{ title || ui.motion }}</h2>
       </div>
       <button
         type="button"
         class="float__close"
-        aria-label="Cerrar blink"
+        :aria-label="float.closeBlink"
         @pointerdown.stop.prevent="closeFloat"
         @click.stop.prevent="closeFloat"
       >
-        Cerrar
+        {{ ui.close }}
       </button>
     </header>
 
