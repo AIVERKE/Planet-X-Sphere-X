@@ -20,9 +20,16 @@ import {
 import { presetById } from '@/data/presetFallback'
 import { isValidDec, isValidRa, parseCoord } from '@/utils/skyFormat'
 
-/** Por debajo de ~0.12° el DSS se ve a bloques: el detalle fino va en el reproductor. */
-export const FOV_MIN = 0.12
+/**
+ * Mínimo del atlas. ~0.028° ≈ 100″.
+ * PanSTARRS trae 0.25″ por píxel: más cerca solo estira esos píxeles en bloques.
+ */
+export const FOV_MIN = 0.028
 export const FOV_MAX = 40
+/** Aviso suave: por debajo el cielo óptico ya no gana detalle. */
+export const FOV_SOFT_LIMIT = 0.35
+/** FOV cómodo para nebulosas / campos anchos (sigue cargando tiles HD). */
+export const FOV_NEBULA = 1.2
 export const URL_WRITE_DELAY_MS = 400
 /** Tiempo máximo para que el router refleje una escritura propia. */
 const OWN_WRITE_TTL_MS = 2000

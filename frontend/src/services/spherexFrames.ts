@@ -5,7 +5,10 @@ export type SpherexFrame = {
   t_min: number
   t_max: number | null
   band: string
+  /** Vista científica del satélite (puede verse pixeleada). */
   png_url: string
+  /** Misma época, render HD (relleno + upscale) para el blink didáctico. */
+  png_url_hd: string
 }
 
 export type SpherexFramesResponse = {
@@ -40,6 +43,6 @@ export async function fetchSpherexFrames(query: SpherexFramesQuery): Promise<Sph
   if (query.band) params.set('band', query.band)
   // La primera pasada baja hasta 16 FITS desde IRSA; puede pasar de dos minutos.
   return httpGet<SpherexFramesResponse>(`/api/observations/frames?${params.toString()}`, {
-    timeoutMs: 300_000,
+    timeoutMs: 45_000,
   })
 }
