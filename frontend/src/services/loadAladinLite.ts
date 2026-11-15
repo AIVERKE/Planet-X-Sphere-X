@@ -21,6 +21,14 @@ export type AladinInstance = {
   ) => object
   getRaDec: () => [number, number]
   getFov: () => number[]
+  createImageFITS?: (
+    url: string,
+    options?: { name?: string },
+    success?: (ra: number, dec: number, fov: number) => void,
+    error?: (err: unknown) => void,
+  ) => object
+  setOverlayImageLayer?: (image: object, name?: string) => void
+  removeImageLayer?: (name: string) => void
   remove?: () => void
   view?: { requestRedraw?: () => void; setViewSize?: (w: number, h: number) => void }
 }
