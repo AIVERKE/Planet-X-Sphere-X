@@ -95,5 +95,6 @@ export function resolveMissionOnboarding(
   if (candidate && typeof candidate.openGuide === 'string' && candidate.steps) {
     return candidate
   }
-  return MISSION_ONBOARDING_ES
+  // `as const` del objeto ES → mutable para el tipo de la UI.
+  return MISSION_ONBOARDING_ES as unknown as MissionOnboardingCopy
 }

@@ -81,10 +81,6 @@ const progress = computed(() => {
   if (!frames.value.length) return 0
   return Math.round((loadedImages.value / frames.value.length) * 100)
 })
-const hdProgress = computed(() => {
-  if (!frames.value.length) return 0
-  return Math.round((hdReady.value / frames.value.length) * 100)
-})
 
 const kindLine = computed(() => {
   const kind = props.objectType || ''
@@ -121,10 +117,12 @@ const waitStepLabel = computed(() => {
 })
 
 const scaleLine = computed(() => {
+  if (source.value === 'panstarrs') return 'PanSTARRS · 1 foto óptica (no es blink)'
   if (source.value === 'wise') {
-    return wiseIsFallback.value ? 'Vista de respaldo · varias fechas' : 'WISE · épocas NEO'
+    return wiseIsFallback.value
+      ? 'WISE · épocas time-resolved (respaldo)'
+      : 'WISE · épocas time-resolved (WiseView)'
   }
-  if (source.value === 'panstarrs') return 'Vista fija del campo'
   return 'SPHEREx · mira el cambio entre fechas'
 })
 
@@ -140,7 +138,7 @@ const sourceBanner = computed(() => {
     if (wiseIsFallback.value) {
       const localHint = nearBarnardOffline(props.ra, props.dec)
         ? 'IRSA no respondió; si falla otra vez, prueba Barnard (tiene caché local).'
-        : 'IRSA caído: SPHEREx offline solo tiene caché de Barnard. Aquí usamos WISE.'
+        : 'IRSA caído: SPHEREx offline solo tiene caché de Barnard. Aquí usamos WISE time-resolved (WiseView) para ver movimiento real.'
       return {
         title: 'Viendo: WISE (respaldo)',
         body: localHint,
@@ -149,13 +147,13 @@ const sourceBanner = computed(() => {
     }
     return {
       title: 'Viendo: WISE',
-      body: 'Elegiste WISE · mosaicos NEO entre rangos de años.',
+      body: 'Épocas time-resolved (WiseView/unWISE): cada cuadro es otra ventana de años. Ahí se ve el movimiento propio. Aladin es DSS óptico; WISE es IR.',
       tone: 'ok' as const,
     }
   }
   return {
-    title: 'Viendo: foto del campo',
-    body: 'SPHEREx no está disponible ahora. Esta es una vista fija, sin secuencia.',
+    title: 'Viendo: PanSTARRS (1 foto)',
+    body: 'No es multi-época: WISE/SPHEREx no cargaron. Pulsa WISE para cargar épocas time-resolved con movimiento real.',
     tone: 'warn' as const,
   }
 })
@@ -211,16 +209,21 @@ function toSpherexFrames(list: SpherexFrame[]): BlinkFrame[] {
 }
 
 function toWiseFrames(stamps: EpochStamp[]): BlinkFrame[] {
-  return stamps.map((stamp) => ({
-    id: stamp.id,
-    band: stamp.label,
-    caption: `${stamp.label} · ${stamp.yearHint}`,
-    leftSrc: stamp.jpegUrl,
-    rightSrc: stamp.jpegUrl,
-    leftTag: `WISE · satélite`,
-    rightTag: 'HD fluido · misma fecha',
-    rightCaption: 'Misma foto · más suave',
-  }))
+  return stamps.map((stamp) => {
+    const mjd =
+      stamp.mjd != null && Number.isFinite(stamp.mjd) ? ` · MJD ${stamp.mjd.toFixed(1)}` : ''
+    return {
+      id: stamp.id,
+      band: stamp.label,
+      caption: `${stamp.label} · ${stamp.yearHint}${mjd}`,
+      leftSrc: stamp.jpegUrl,
+      // Se sustituye por blob HD en warmHd; mientras tanto el crudo.
+      rightSrc: stamp.jpegUrl,
+      leftTag: `WISE · satélite`,
+      rightTag: 'HD fluido · misma fecha',
+      rightCaption: 'Misma época · más suave',
+    }
+  })
 }
 
 function revokeHdBlobs() {
@@ -270,7 +273,7 @@ async function useWiseNow(asFallback = true) {
   metaHint.value = asFallback ? 'Cargando WISE (sin esperar SPHEREx)…' : 'Cargando WISE…'
   startWaitTicker()
   try {
-    await loadWiseFallback(token, asFallback)
+    await loadWiseWithRetry(token, asFallback)
     stopWaitTicker()
   } catch {
     if (token !== loadToken) return
@@ -280,12 +283,16 @@ async function useWiseNow(asFallback = true) {
     } catch {
       if (token !== loadToken) return
       stopWaitTicker()
-      errorMessage.value = 'No se pudo cargar WISE ahora.'
+      errorMessage.value = 'No se pudo cargar WISE time-resolved. Revisa el backend / WiseView.'
       phase.value = 'error'
       reloading.value = false
       source.value = 'spherex'
     }
   }
+}
+
+function sleep(ms: number) {
+  return new Promise((r) => setTimeout(r, ms))
 }
 
 /** Switch SPHEREx ↔ WISE a petición del usuario. */
@@ -313,13 +320,14 @@ function resetZoom() {
 
 async function warmHd(frameList: BlinkFrame[], token: number) {
   hdReady.value = 0
-  for (let i = 0; i < frameList.length; i += 1) {
+
+  async function enhanceOne(frame: BlinkFrame) {
     if (token !== loadToken) return
-    const frame = frameList[i]!
     try {
       if (source.value === 'spherex') {
         await preloadOne(frame.rightSrc)
       } else {
+        // WiseView ya es PNG “bonito”: hay que suavizar fuerte para notar izq vs der.
         const hd = await enhanceJpegToHd(frame.leftSrc, { scale: 3 })
         if (token !== loadToken) {
           URL.revokeObjectURL(hd)
@@ -327,19 +335,36 @@ async function warmHd(frameList: BlinkFrame[], token: number) {
         }
         hdBlobUrls.add(hd)
         frame.rightSrc = hd
-        // Disparar reactividad del array.
-        frames.value = [...frameList]
+        if (token === loadToken) frames.value = [...frameList]
       }
-    } catch {
-      /* el panel derecho sigue con el original */
+      if (token === loadToken) hdReady.value += 1
+    } catch (error) {
+      console.warn('[blink HD]', error)
     }
-    if (token === loadToken) hdReady.value += 1
   }
+
+  // Primero la época visible; luego el resto (2 en paralelo).
+  const order = [
+    index.value,
+    ...frameList.map((_, i) => i).filter((i) => i !== index.value),
+  ]
+  let cursor = 0
+  const concurrency = source.value === 'spherex' ? 3 : 2
+  const workers = Array.from({ length: concurrency }, async () => {
+    while (token === loadToken) {
+      const pos = cursor++
+      if (pos >= order.length) return
+      const i = order[pos]!
+      const frame = frameList[i]
+      if (frame) await enhanceOne(frame)
+    }
+  })
+  await Promise.all(workers)
 }
 
 async function loadWiseFallback(token: number, asFallback = true) {
-  metaHint.value = asFallback ? 'Cargando vista de respaldo…' : 'Cargando WISE…'
-  const stamps = await fetchUnwiseEpochStamps(props.ra, props.dec, 280)
+  metaHint.value = asFallback ? 'Cargando WISE time-resolved (WiseView)…' : 'Cargando WISE…'
+  const stamps = await fetchUnwiseEpochStamps(props.ra, props.dec, 160)
   if (token !== loadToken) return
   const mapped = toWiseFrames(stamps)
   source.value = 'wise'
@@ -360,8 +385,21 @@ async function loadWiseFallback(token: number, asFallback = true) {
   void warmHd(mapped, token)
 }
 
+/** WISE con un reintento: evita caer a PanSTARRS (1 foto) por un fallo puntual. */
+async function loadWiseWithRetry(token: number, asFallback = true) {
+  try {
+    await loadWiseFallback(token, asFallback)
+  } catch {
+    if (token !== loadToken) return
+    metaHint.value = 'Reintentando WISE time-resolved…'
+    await sleep(500)
+    if (token !== loadToken) return
+    await loadWiseFallback(token, asFallback)
+  }
+}
+
 async function loadPanstarrsFallback(token: number) {
-  metaHint.value = 'Cargando vista fija del campo…'
+  metaHint.value = 'Último recurso: PanSTARRS óptico (1 foto, sin épocas)…'
   const sizePx = Math.round(((props.cutoutSize ?? 0.08) * 3600) / 0.25)
   const url = await panstarrsColorJpeg(props.ra, props.dec, Math.min(900, Math.max(256, sizePx)))
   if (token !== loadToken) return
@@ -375,12 +413,12 @@ async function loadPanstarrsFallback(token: number) {
     {
       id: 'panstarrs',
       band: 'yig',
-      caption: 'Foto del campo · una fecha',
+      caption: 'PanSTARRS stack · 1 foto (no es WISE/SPHEREx)',
       leftSrc: url,
       rightSrc: url,
-      leftTag: 'Satélite · crudo',
-      rightTag: 'HD fluido · misma fecha',
-      rightCaption: 'Misma foto · más suave',
+      leftTag: 'PanSTARRS · óptico',
+      rightTag: 'Misma foto · más suave',
+      rightCaption: 'No hay secuencia temporal aquí',
     },
   ]
   frames.value = mapped
@@ -476,9 +514,9 @@ async function load(preferSpherex = true) {
     } catch (error) {
       if (token !== loadToken) return
       spherexError.value = classify(error)
-      metaHint.value = 'SPHEREx no respondió a tiempo · pasando a WISE…'
+      metaHint.value = 'SPHEREx no respondió a tiempo · pasando a WISE time-resolved…'
       try {
-        await loadWiseFallback(token)
+        await loadWiseWithRetry(token)
         if (token === loadToken) stopWaitTicker()
         return
       } catch {
@@ -541,8 +579,9 @@ function selectBand(code: string) {
 }
 
 function rightSrc(frame: BlinkFrame): string {
-  if (hdReady.value <= index.value) return frame.leftSrc
-  return frame.rightSrc
+  // Solo usar HD cuando ya hay blob distinto del JPEG crudo.
+  if (frame.rightSrc && frame.rightSrc !== frame.leftSrc) return frame.rightSrc
+  return frame.leftSrc
 }
 
 /** Estilo vivo: saturación + contraste en ambas fotos. */
@@ -559,7 +598,7 @@ const sourceSwitchDisabled = computed(
 const paceButtonLabel = computed(() => {
   const n = frames.value.length
   if (source.value === 'spherex') return `${n} visitas · ¿qué es cada foto?`
-  if (source.value === 'wise') return `${n} épocas NEO · ¿qué es cada foto?`
+  if (source.value === 'wise') return `${n} épocas WISE · ¿qué es cada foto?`
   return '¿Qué es cada foto?'
 })
 
@@ -574,7 +613,7 @@ const paceNowLine = computed(() => {
   }
   if (source.value === 'wise') {
     const why = wiseIsFallback.value ? ' (respaldo porque SPHEREx no respondió)' : ' (lo elegiste en el switch)'
-    return `Ahora ves WISE${why}: ${n} mosaicos NEO. Cada uno resume años, no una sola noche. El valor ms (${wait}) es la pausa entre esas épocas en el blink.`
+    return `Ahora ves WISE${why}: ${n} épocas time-resolved (WiseView). Cada foto es otra ventana temporal — el objeto que se mueve es real, no un coadd acumulativo. El valor ms (${wait}) es la pausa del blink.`
   }
   return 'Ahora ves una foto fija del campo (sin secuencia temporal).'
 })
@@ -582,19 +621,20 @@ const paceNowLine = computed(() => {
 /** Textos didácticos de cada control (valen igual en SPHEREx y WISE). */
 const controlGuide = computed(() => {
   const spherex = source.value === 'spherex'
+  const n = frames.value.length
   return {
     epochs: spherex
       ? 'Épocas / visitas: cada paso es una foto SPHEREx de otra fecha (misma banda D1–D6). Mueve el slider o usa Anterior/Siguiente para comparar.'
-      : 'Épocas NEO: cada paso es un mosaico WISE de otro rango de años. No es una sola noche: es un apilado.',
+      : 'Épocas WISE time-resolved: cada paso es otra ventana temporal (WiseView). En objetivos de Movimiento deberías ver el salto de posición.',
     ms: `Intervalo del blink (${msPerFrame.value} ms): velocidad de la animación al dar Play. No elige la época: solo cuánto espera entre un cuadro y el siguiente (como en WiseView).`,
     epochsPick: spherex
       ? 'Esto elige qué visita SPHEREx estás viendo (1, 2, 3…). No es la velocidad del blink.'
-      : 'Esto elige qué época NEO estás viendo (1 de 6, 2 de 6…). No es la velocidad del blink.',
+      : `Esto elige qué época WISE estás viendo (1 de ${n || 8}…). No es la velocidad del blink.`,
     saturation:
       'Saturación: intensidad del color. Más bajo = más gris; más alto = naranjas/rojos IR más vivos. Sirve igual en SPHEREx y WISE.',
     contrast:
       'Contraste: diferencia entre zonas claras y oscuras. Súbelo si la estrella se pierde en el ruido; bájalo si el centro se quema en blanco.',
-    zoom: 'Zoom: acerca el recorte para ver el desplazamiento. En SPHEREx mira el núcleo; en WISE el salto entre épocas NEO.',
+    zoom: 'Zoom: acerca el recorte para ver el desplazamiento. En SPHEREx mira el núcleo; en WISE el salto entre épocas.',
     duo: 'Izquierda = foto del satélite (cruda). Derecha = la misma fecha, más suave (HD). Las dos cambian juntas al pasar de época.',
   }
 })
@@ -675,6 +715,9 @@ onBeforeUnmount(() => {
   <div class="player" :class="`player--${source}`">
     <p class="player__lead">{{ kindLine }} · {{ scaleLine }}</p>
     <p v-if="note" class="player__note">{{ note }}</p>
+    <p class="player__coords" title="Mismas coordenadas que el rectángulo del atlas">
+      Fotos en AR {{ ra.toFixed(5) }}° · Dec {{ dec >= 0 ? '+' : '' }}{{ dec.toFixed(5) }}°
+    </p>
 
     <div class="player__switch" role="tablist" aria-label="Fuente del blink">
       <button
@@ -753,22 +796,22 @@ onBeforeUnmount(() => {
           v-if="source === 'spherex' || reloading"
           type="button"
           class="player__go"
-          @click="useWiseNow"
+          @click="() => useWiseNow(true)"
         >
           Usar WISE ahora
         </button>
         <button type="button" class="player__step" @click="retrySpherex">Reintentar SPHEREx</button>
       </div>
       <p class="player__wait-note">
-        Si IRSA no contesta, el blink pasa solo a WISE (~28 s). WISE muestra movimiento entre épocas
-        apiladas, no visitas SPHEREx noche a noche.
+        Si IRSA no contesta, el blink pasa a WISE time-resolved (WiseView): cada época es otra
+        ventana temporal real, con MJD propio.
       </p>
     </div>
     <div v-else-if="phase === 'error'" class="player__err">
       <p>{{ errorMessage }}</p>
       <div class="player__wait-actions">
         <button type="button" class="player__go" @click="retrySpherex">Probar SPHEREx</button>
-        <button type="button" class="player__step" @click="useWiseNow">Usar WISE</button>
+        <button type="button" class="player__step" @click="() => useWiseNow(true)">Usar WISE</button>
       </div>
     </div>
     <p v-else-if="reloading && active" class="player__meta">{{ metaHint }}</p>
@@ -809,17 +852,20 @@ onBeforeUnmount(() => {
         <figure class="player__frame player__frame--sat">
           <span class="player__tag">{{ active.leftTag }}</span>
           <div class="player__shot">
-            <img :src="active.leftSrc" :alt="active.leftTag" :style="imgZoomStyle" />
+            <img :key="active.id" :src="active.leftSrc" :alt="active.leftTag" :style="imgZoomStyle" />
           </div>
           <figcaption>{{ active.caption }}</figcaption>
         </figure>
         <figure class="player__frame player__frame--hd">
           <span class="player__tag">{{ active.rightTag }}</span>
           <div class="player__shot">
-            <img :src="rightSrc(active)" :alt="active.rightTag" :style="imgZoomStyle" />
+            <img :key="`${active.id}-hd`" :src="rightSrc(active)" :alt="active.rightTag" :style="imgZoomStyle" />
           </div>
           <figcaption>
-            <template v-if="hdReady < frames.length">Afinando HD {{ hdReady }}/{{ frames.length }}…</template>
+            <template v-if="hdReady < frames.length">
+              HD {{ hdReady }}/{{ frames.length }}
+              <template v-if="active.rightSrc === active.leftSrc"> · suavizando…</template>
+            </template>
             <template v-else>{{ active.rightCaption }}</template>
           </figcaption>
         </figure>
@@ -985,14 +1031,14 @@ onBeforeUnmount(() => {
             <figure class="enlarge-modal__frame">
               <span>{{ active.leftTag }}</span>
               <div class="enlarge-modal__shot">
-                <img :src="active.leftSrc" :alt="active.leftTag" :style="imgZoomStyle" />
+                <img :key="active.id" :src="active.leftSrc" :alt="active.leftTag" :style="imgZoomStyle" />
               </div>
               <figcaption>{{ active.caption }}</figcaption>
             </figure>
             <figure class="enlarge-modal__frame enlarge-modal__frame--hd">
               <span>{{ active.rightTag }}</span>
               <div class="enlarge-modal__shot">
-                <img :src="rightSrc(active)" :alt="active.rightTag" :style="imgZoomStyle" />
+                <img :key="`${active.id}-hd`" :src="rightSrc(active)" :alt="active.rightTag" :style="imgZoomStyle" />
               </div>
               <figcaption>{{ active.rightCaption }}</figcaption>
             </figure>
@@ -1135,19 +1181,19 @@ onBeforeUnmount(() => {
             </section>
 
             <section class="pace-modal__card" :class="{ 'is-active': source === 'wise' }">
-              <h3>WISE / unWISE (respaldo)</h3>
+              <h3>WISE / unWISE (WiseView)</h3>
               <ul>
-                <li>Cada cuadro es un <strong>mosaico NEO</strong> (NEO2…NEO11), no una noche suelta.</li>
-                <li>Hay <strong>pocas épocas</strong> (unas 6 capas): cada una resume un <strong>rango de años</strong> (~2010–14, ~2010–15, …).</li>
-                <li>Se usa cuando SPHEREx/IRSA no responde, para seguir mostrando movimiento propio entre épocas.</li>
-                <li>Izquierda = JPEG del satélite/apilado; derecha = la misma época suavizada en HD.</li>
+                <li>Cada cuadro es una <strong>época time-resolved</strong> (ventana temporal estrecha), no un coadd NEO acumulativo.</li>
+                <li>En objetivos de <strong>Movimiento</strong> (WISE 0855, Barnard…) el blink muestra el salto real entre años.</li>
+                <li>Misma fuente que <strong>byw.tools/wiseview</strong>; se usa también cuando SPHEREx/IRSA no responde.</li>
+                <li>Izquierda = PNG WiseView; derecha = la misma época suavizada en HD.</li>
               </ul>
             </section>
 
             <section class="pace-modal__card">
               <h3>Época / visita ≠ intervalo del blink</h3>
               <ul>
-                <li><strong>Época o visita</strong> elige <em>qué</em> foto miras (1 de 6, 2 de 6…).</li>
+                <li><strong>Época o visita</strong> elige <em>qué</em> foto miras (1 de N, 2 de N…).</li>
                 <li><strong>Intervalo del blink</strong> (como en WiseView) elige <em>qué tan rápido</em> cambia al dar Play, en milisegundos.</li>
                 <li>No uses el slider de épocas para la velocidad: para eso está “Intervalo del blink (ms)”.</li>
               </ul>
@@ -1179,7 +1225,8 @@ onBeforeUnmount(() => {
 
 .player__lead,
 .player__meta,
-.player__note {
+.player__note,
+.player__coords {
   margin: 0.35rem 0 0;
   font-size: 0.82rem;
   line-height: 1.35;
@@ -1189,6 +1236,14 @@ onBeforeUnmount(() => {
 .player__note {
   margin-top: 0.2rem;
   color: #ffe9b8;
+}
+
+.player__coords {
+  margin-top: 0.25rem;
+  font-size: 0.75rem;
+  letter-spacing: 0.02em;
+  color: #9ecbff;
+  font-variant-numeric: tabular-nums;
 }
 
 .player__switch {
@@ -2111,6 +2166,7 @@ onBeforeUnmount(() => {
   min-height: 0;
   object-fit: contain;
   object-position: center;
+  background: #000;
   pointer-events: none;
   transition: transform 0.12s ease-out;
   will-change: transform;
@@ -2127,7 +2183,8 @@ onBeforeUnmount(() => {
 }
 
 .player__frame--sat img {
-  image-rendering: pixelated;
+  /* Foto del satélite tal cual: sin pixelar ni filtrar de más. */
+  image-rendering: auto;
 }
 
 .player--panstarrs .player__frame--sat img {
@@ -2135,6 +2192,7 @@ onBeforeUnmount(() => {
 }
 
 .player__frame--hd img {
+  /* Render del sistema: color intacto, sin blur extra (el canvas ya lo afila). */
   image-rendering: auto;
 }
 

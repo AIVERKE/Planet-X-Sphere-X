@@ -49,7 +49,6 @@ import type { PresetLocation } from '@/types/presets'
 import {
   bandLabel,
   formatRaDec,
-  hostFromUrl,
   isValidDec,
   isValidRa,
   mjdToHint,
@@ -648,6 +647,9 @@ function scheduleCaptureSyncFromLive() {
 
 function applyCaptureSyncFromLive() {
   if (status.value !== 'ready' || stage.value === 'flying' || syncingFromUrl) return
+  // Con blink abierto el cielo se desplaza a propósito (recorte a la izquierda):
+  // no mover stampRa/Dec ni recargar fotos al centro desplazado.
+  if (spherexFloatOpen.value) return
   const ra = Number(liveRa.value)
   const dec = Number(liveDec.value)
   if (!Number.isFinite(ra) || !Number.isFinite(dec)) return
@@ -788,15 +790,36 @@ const footprintSizeDeg = computed(() =>
 )
 
 const footprintLabel = computed(() => {
-  if (motionMode.value === 'wise') return 'Recorte WISE'
-  if (spherexFloatOpen.value) return 'Recorte blink'
-  return 'Recorte SPHEREx'
+  const ra = playerRa.value
+  const dec = playerDec.value
+  const coord =
+    ra != null && dec != null
+      ? ` · ${ra.toFixed(3)}° ${dec >= 0 ? '+' : ''}${dec.toFixed(3)}°`
+      : ''
+  if (motionMode.value === 'wise') return `Recorte WISE${coord}`
+  if (spherexFloatOpen.value) return `Recorte blink${coord}`
+  return `Recorte SPHEREx${coord}`
 })
+
+/** El centro del atlas y el recorte de satélite son el mismo punto (±30″). */
+const footprintMatchesAtlas = computed(() => {
+  const ra = playerRa.value
+  const dec = playerDec.value
+  const cra = Number(liveRa.value === '—' ? raInput.value : liveRa.value)
+  const cdec = Number(liveDec.value === '—' ? decInput.value : liveDec.value)
+  if (ra == null || dec == null || !Number.isFinite(cra) || !Number.isFinite(cdec)) return false
+  const cos = Math.cos((cdec * Math.PI) / 180)
+  const dRa = ((ra - cra + 540) % 360) - 180
+  const distDeg = Math.hypot(dRa * cos, dec - cdec)
+  return distDeg * 3600 <= 30
+})
+
 
 const footprintVisible = computed(
   () =>
     status.value === 'ready' &&
     !isEmbed.value &&
+    activeTarget.value != null &&
     playerRa.value != null &&
     playerDec.value != null &&
     Number.isFinite(Number(liveRa.value)) &&
@@ -892,7 +915,11 @@ async function focusCutoutOnAtlas(payload: { ra: number; dec: number; fovDeg: nu
   stageHint.value = 'Contexto óptico del recorte'
   await animateFoV(from, targetFov, 700, token)
   if (token !== journeyToken) return
-  refreshAladinView(aladin, host.value)
+  if (spherexFloatOpen.value) {
+    frameAtlasForBlink(true)
+  } else {
+    refreshAladinView(aladin, host.value)
+  }
 }
 
 function zoomBy(factor: number) {
@@ -990,13 +1017,16 @@ async function loadStampsAt(ra: number, dec: number, mode: StampMode = stampMode
 
   try {
     if (mode === 'epochs') {
-      const epochs = await fetchUnwiseEpochStamps(ra, dec, 280)
+      const epochs = await fetchUnwiseEpochStamps(ra, dec, 160)
       if (token !== stampLoadToken) return
       stamps.value = epochs.map((e) => ({
         id: e.id,
         label: e.label,
         jpegUrl: e.jpegUrl,
-        sub: e.yearHint,
+        sub:
+          e.mjd != null && Number.isFinite(e.mjd)
+            ? `${e.yearHint} · MJD ${e.mjd.toFixed(1)}`
+            : e.yearHint,
       }))
       stampsKey.value = `${ra},${dec},${mode}`
       stampLoading.value = false
@@ -1020,7 +1050,7 @@ async function loadStampsAt(ra: number, dec: number, mode: StampMode = stampMode
       error instanceof Error
         ? error.message
         : mode === 'epochs'
-          ? 'No se pudieron cargar épocas unWISE'
+          ? 'No se pudieron cargar épocas WISE (WiseView)'
           : 'No se pudieron cargar sellos PanSTARRS'
   } finally {
     if (token === stampLoadToken) stampLoading.value = false
@@ -1059,6 +1089,35 @@ function openStampsTab() {
   openSpherexFloat()
 }
 
+/**
+ * Con el blink a la derecha, mueve el atlas para que el objetivo (y el rectángulo)
+ * queden en la mitad izquierda visible; al cerrar, vuelve a centrar.
+ * El + morado de Aladin es el centro de la *vista*, no el objetivo: se oculta
+ * mientras el blink está abierto para no confundir con el recorte.
+ */
+function frameAtlasForBlink(open: boolean) {
+  const aladin = aladinRef.value as { gotoRaDec: (ra: number, dec: number) => void; showReticle?: (on: boolean) => void } | null
+  const ra = playerRa.value
+  const dec = playerDec.value
+  if (!aladin || ra == null || dec == null) return
+  try {
+    aladin.showReticle?.(!open)
+  } catch {
+    /* ignore */
+  }
+  if (open) {
+    const fovX = Math.max(Number(fovInput.value) || 0.4, 1e-6)
+    const cos = Math.max(0.25, Math.abs(Math.cos((dec * Math.PI) / 180)))
+    // Panel ~derecha (≤46vw): objetivo hacia ~22% de la vista (mitad de la zona libre).
+    const centerRa = ((ra + (0.28 * fovX) / cos) % 360 + 360) % 360
+    aladin.gotoRaDec(centerRa, dec)
+  } else {
+    aladin.gotoRaDec(ra, dec)
+  }
+  syncCoords()
+  refreshAladinView(aladin as never, host.value)
+}
+
 function openSpherexFloat() {
   motionMode.value = 'spherex'
   stopBlink()
@@ -1068,6 +1127,7 @@ function openSpherexFloat() {
   catalogOpen.value = false
   spherexFloatOpen.value = true
   spherexFloatTick.value += 1
+  void nextTick(() => frameAtlasForBlink(true))
 }
 
 function toggleDrawer() {
@@ -1142,7 +1202,10 @@ async function visitPreset(
     motionMode.value = 'spherex'
     openSpherexFloat()
   } else {
+    // Campos: atlas amplio + capturas en Datos. El blink no se abre solo
+    // (no son los 5 del reto), pero sí se cargan fotos WISE del parche.
     spherexFloatOpen.value = false
+    motionMode.value = 'wise'
   }
 
   stage.value = 'flying'
@@ -1391,13 +1454,19 @@ function openIn3d() {
   })
 }
 
-watch(spherexFloatOpen, () => {
+watch(spherexFloatOpen, (open) => {
   void nextTick(() => {
     measureSky()
-    const aladin = aladinRef.value
-    if (aladin) refreshAladinView(aladin, host.value)
+    frameAtlasForBlink(open)
   })
 })
+
+watch(
+  () => [fovInput.value, skyAspect.value] as const,
+  () => {
+    if (spherexFloatOpen.value) frameAtlasForBlink(true)
+  },
+)
 
 watch(
   () => status.value === 'ready' && !isEmbed.value,
@@ -1447,18 +1516,6 @@ onUnmounted(() => {
       :aspect="skyAspect"
       :enabled="stage !== 'flying'"
     />
-    <CutoutPulseOverlay
-      v-if="footprintVisible && playerRa != null && playerDec != null"
-      :ra="playerRa"
-      :dec="playerDec"
-      :size-deg="footprintSizeDeg"
-      :center-ra="Number(liveRa)"
-      :center-dec="Number(liveDec)"
-      :fov-deg="Number(fovInput) || 2"
-      :aspect="skyAspect"
-      :label="footprintLabel"
-      :emphasized="spherexFloatOpen"
-    />
     <!-- HUD: una sola franja superior, sin FABs sueltos que choquen -->
     <header v-if="!isEmbed" class="sky__top">
       <div
@@ -1470,6 +1527,28 @@ onUnmounted(() => {
         <h1 class="sky__title">{{ activeTarget?.name || ui.defaultTitle }}</h1>
         <p v-if="!catalogOpen" class="sky__skyhint">{{ skyHint }}</p>
       </div>
+      <!-- Hueco entre título y botones: lupa a la derecha del objetivo, izquierda del menú. -->
+      <div class="sky__mid">
+        <button
+          type="button"
+          class="btn btn--search"
+          :class="{ 'btn--on': searchOpen }"
+          title="Ir a coordenadas"
+          aria-label="Ir a coordenadas"
+          @click="toggleSearch"
+        >
+          <svg class="btn__icon" viewBox="0 0 24 24" aria-hidden="true">
+            <circle cx="10.5" cy="10.5" r="6.25" fill="none" stroke="currentColor" stroke-width="1.8" />
+            <path
+              d="M15.4 15.4 20 20"
+              fill="none"
+              stroke="currentColor"
+              stroke-width="1.8"
+              stroke-linecap="round"
+            />
+          </svg>
+        </button>
+      </div>
       <div class="sky__actions">
         <LanguageToggle compact />
         <button
@@ -1479,22 +1558,6 @@ onUnmounted(() => {
           @click="catalogOpen = !catalogOpen"
         >
           {{ ui.targets }}
-        </button>
-        <button
-          type="button"
-          class="btn"
-          :class="{ 'btn--on': drawerOpen }"
-          @click="toggleDrawer"
-        >
-          {{ ui.data }}
-        </button>
-        <button
-          type="button"
-          class="btn"
-          :class="{ 'btn--on': searchOpen }"
-          @click="toggleSearch"
-        >
-          {{ ui.search }}
         </button>
         <button type="button" class="btn" @click="openStampsTab">{{ ui.stamps }}</button>
         <button
@@ -1533,7 +1596,8 @@ onUnmounted(() => {
       </button>
     </div>
 
-    <div v-if="status === 'ready' && searchOpen && !isEmbed" class="sky__search">
+    <div v-if="status === 'ready' && searchOpen && !isEmbed" class="sky__search" role="search">
+      <p class="sky__search-kicker">Ir a coordenadas</p>
       <label>
         RA
         <input
@@ -1633,10 +1697,7 @@ onUnmounted(() => {
       v-if="status === 'ready' && drawerOpen && !isEmbed"
       class="panel panel--right"
     >
-      <div
-        class="panel__head"
-        :data-tour="sideTab === 'info' ? 'data' : undefined"
-      >
+      <div class="panel__head">
         <div class="tabs">
           <button
             type="button"
@@ -1873,6 +1934,21 @@ onUnmounted(() => {
       @focus-sky="focusCutoutOnAtlas"
     />
 
+    <!-- Después del blink en el DOM + z-index alto: el marco no queda detrás del panel. -->
+    <CutoutPulseOverlay
+      v-if="footprintVisible && playerRa != null && playerDec != null"
+      :ra="Number(playerRa)"
+      :dec="Number(playerDec)"
+      :size-deg="footprintSizeDeg"
+      :center-ra="Number(liveRa === '—' ? raInput : liveRa)"
+      :center-dec="Number(liveDec === '—' ? decInput : liveDec)"
+      :fov-deg="Number(fovInput) || 0.4"
+      :aspect="skyAspect"
+      :label="footprintLabel"
+      :emphasized="spherexFloatOpen || footprintMatchesAtlas"
+      :visible="true"
+    />
+
     <SpherexDetailWindow
       v-if="status === 'ready' && !isEmbed"
       :open="detailOpen"
@@ -1913,12 +1989,34 @@ onUnmounted(() => {
       </div>
     </template>
 
-    <footer v-if="status === 'ready' && !isEmbed" class="sky__bar">
+    <footer
+      v-if="status === 'ready' && !isEmbed"
+      class="sky__bar"
+      :class="{ 'sky__bar--aside': spherexFloatOpen }"
+    >
       <div class="sky__bar-coords">
-        <span>RA {{ liveRa }}°</span>
-        <span>Dec {{ liveDec }}°</span>
+        <!-- Una sola línea: con blink = recorte; si no = centro de la vista. -->
+        <template v-if="spherexFloatOpen && playerRa != null && playerDec != null">
+          <span class="sky__bar-tag sky__bar-tag--cut" title="Coords del blink / marco dorado">Recorte</span>
+          <span>AR {{ playerRa.toFixed(5) }}°</span>
+          <span>Dec {{ playerDec.toFixed(5) }}°</span>
+        </template>
+        <template v-else>
+          <span>AR {{ liveRa }}°</span>
+          <span>Dec {{ liveDec }}°</span>
+        </template>
         <span :class="backendOk ? 'ok' : 'bad'">{{ backendOk ? 'API ok' : 'API…' }}</span>
       </div>
+      <button
+        type="button"
+        class="btn btn--datos"
+        data-tour="data"
+        :class="{ 'btn--on': drawerOpen, 'is-pulse': !drawerOpen }"
+        title="Info del objetivo, observaciones y movimiento"
+        @click="toggleDrawer"
+      >
+        Datos
+      </button>
       <div class="sky__bar-zoom">
         <button type="button" class="zoom-btn" :title="ui.zoomIn" @click="zoomBy(0.65)">+</button>
         <input v-model.number="zoomSlider" type="range" min="0" max="1000" />
@@ -2027,7 +2125,7 @@ onUnmounted(() => {
   display: flex;
   justify-content: space-between;
   align-items: flex-start;
-  gap: 1rem;
+  gap: 0.75rem 1rem;
   padding: 1rem 1.25rem;
   pointer-events: none;
   background: linear-gradient(to bottom, rgba(0, 0, 0, 0.72), transparent 90%);
@@ -2035,9 +2133,24 @@ onUnmounted(() => {
 
 .sky__brand {
   pointer-events: none;
-  max-width: min(48vw, 26rem);
+  flex: 0 1 auto;
+  max-width: min(42vw, 24rem);
   min-width: 0;
   transition: margin-left 0.2s ease;
+}
+
+.sky__mid {
+  flex: 1 1 auto;
+  display: flex;
+  justify-content: center;
+  align-items: flex-start;
+  min-width: 2.75rem;
+  padding-top: 0.15rem;
+  pointer-events: none;
+}
+
+.sky__mid .btn {
+  pointer-events: auto;
 }
 
 /* Evita choque título ↔ panel Objetivos */
@@ -2098,6 +2211,7 @@ onUnmounted(() => {
   gap: 0.5rem;
   align-items: flex-start;
   justify-content: flex-end;
+  flex: 0 0 auto;
   pointer-events: auto;
 }
 
@@ -2138,6 +2252,38 @@ onUnmounted(() => {
   animation: soft-pulse 2.4s ease-in-out infinite;
 }
 
+.btn__icon {
+  width: 1.15rem;
+  height: 1.15rem;
+  display: block;
+}
+
+.btn--search {
+  width: 2.65rem;
+  height: 2.65rem;
+  padding: 0;
+  display: inline-grid;
+  place-items: center;
+  border-radius: 999px;
+  border-color: rgba(232, 196, 120, 0.55);
+  color: #ffe9b8;
+}
+
+.btn--datos {
+  flex: 0 0 auto;
+  padding: 0.72rem 1.35rem;
+  font-size: 1rem;
+  font-weight: 650;
+  letter-spacing: 0.12em;
+  border-color: rgba(232, 196, 120, 0.7);
+  color: #ffe9b8;
+  background: rgba(232, 196, 120, 0.16);
+}
+
+.btn--datos.is-pulse {
+  animation: soft-pulse 1.8s ease-in-out infinite;
+}
+
 @keyframes soft-pulse {
   0%,
   100% {
@@ -2152,6 +2298,7 @@ onUnmounted(() => {
 
 @media (prefers-reduced-motion: reduce) {
   .btn--on,
+  .btn--datos.is-pulse,
   .seg__btn.is-on,
   .action.is-live,
   .dest.is-on,
@@ -2178,6 +2325,15 @@ onUnmounted(() => {
   background: rgba(5, 7, 12, 0.94);
   backdrop-filter: blur(14px);
   box-shadow: 0 12px 40px rgba(0, 0, 0, 0.45);
+}
+
+.sky__search-kicker {
+  flex: 1 0 100%;
+  margin: 0 0 0.15rem;
+  font-size: 0.72rem;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: rgba(255, 233, 184, 0.8);
 }
 
 .sky__search-err {
@@ -2808,27 +2964,48 @@ onUnmounted(() => {
   position: absolute;
   left: 50%;
   bottom: 1rem;
-  z-index: 5;
+  z-index: 6;
   transform: translateX(-50%);
   display: flex;
   flex-wrap: wrap;
   align-items: center;
   justify-content: space-between;
-  gap: 0.85rem;
-  width: min(720px, calc(100% - 2rem));
-  padding: 0.7rem 1rem;
+  gap: 0.65rem 0.85rem;
+  width: min(820px, calc(100% - 2rem));
+  padding: 0.65rem 0.9rem;
   border: 1px solid rgba(255, 255, 255, 0.18);
   border-radius: 999px;
   background: rgba(5, 7, 12, 0.78);
   backdrop-filter: blur(12px);
 }
 
+.sky__bar.sky__bar--aside {
+  left: 1rem;
+  right: auto;
+  transform: none;
+  width: min(34rem, calc(50vw - 1.5rem));
+}
+
 .sky__bar-coords {
   display: flex;
   flex-wrap: wrap;
-  gap: 0.75rem;
+  gap: 0.55rem;
   font-family: ui-monospace, monospace;
-  font-size: 0.92rem;
+  font-size: 0.88rem;
+  min-width: 0;
+  flex: 1 1 auto;
+}
+
+.sky__bar-tag {
+  color: rgba(255, 255, 255, 0.55);
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  font-size: 0.72rem;
+  align-self: center;
+}
+
+.sky__bar-tag--cut {
+  color: #ffe9b8;
 }
 
 .sky__bar-coords .ok {
@@ -2899,8 +3076,14 @@ onUnmounted(() => {
     margin-left: 0;
   }
 
+  .sky__mid {
+    justify-content: flex-start;
+    order: 2;
+  }
+
   .sky__actions {
     justify-content: flex-start;
+    order: 3;
   }
 
   .panel {

@@ -48,6 +48,13 @@ export default defineConfig({
         secure: false,
         rewrite: (path) => path.replace(/^\/hips\/irsa-2mass/, '/data/hips/CDS/2MASS/Color'),
       },
+      // unWISE NEO cutouts: mismo origen en dev (menos timeouts al precargar 6 épocas).
+      '/ls-viewer': {
+        target: 'https://www.legacysurvey.org',
+        changeOrigin: true,
+        secure: false,
+        rewrite: (path) => path.replace(/^\/ls-viewer/, '/viewer'),
+      },
     },
   },
   assetsInclude: ['**/*.exr'],
