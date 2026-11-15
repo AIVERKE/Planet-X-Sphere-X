@@ -1,6 +1,6 @@
 <script setup lang="ts">
-import { computed, nextTick, onMounted, onUnmounted, ref, shallowRef } from 'vue'
-import { useRouter } from 'vue-router'
+import { computed, nextTick, onMounted, onUnmounted, ref, shallowRef, watch } from 'vue'
+import { useRoute, useRouter, type LocationQuery, type LocationQueryRaw } from 'vue-router'
 import {
   LOCAL_HIPS,
   applyLocalHips,
@@ -25,14 +25,26 @@ import {
   fetchUnwiseEpochStamps,
   wiseviewPortalUrl,
 } from '@/services/unwiseEpochs'
-import { SKY_TARGETS, type SkyTarget } from '@/data/skyTargets'
+import { SKY_TARGETS, skyTargetById, type SkyTarget } from '@/data/skyTargets'
 import {
   bandLabel,
   formatRaDec,
   hostFromUrl,
+  isValidDec,
+  isValidRa,
   mjdToHint,
+  parseCoord,
   shortObsId,
 } from '@/utils/skyFormat'
+import {
+  FOV_MAX,
+  FOV_MIN,
+  describeInvalidQuery,
+  readFromQuery,
+  useSkyUrlState,
+  type SkyUrlState,
+  type SkyViewState,
+} from '@/composables/useSkyUrlState'
 import '@/styles/explorer.css'
 
 type ViewStage = 'idle' | 'flying' | 'hd'
@@ -45,10 +57,16 @@ type StampFrame = {
   sub?: string
 }
 
-const FOV_MIN = 0.08
-const FOV_MAX = 40
+type StartView = { ra: number; dec: number; fov: number; target: SkyTarget | null }
+type CopyFeedback = { which: 'link' | 'embed'; ok: boolean }
+
+/** Desplazamiento mínimo (grados) a partir del cual una vista llegada por URL recarga datos. */
+const RELOAD_DISTANCE_DEG = 1 / 60
 
 const router = useRouter()
+const route = useRoute()
+const { writeToQuery, commitToQuery, flushQueryWrite, cancelQueryWrite, isOwnQuery } =
+  useSkyUrlState()
 const host = ref<HTMLElement | null>(null)
 const status = ref<'loading' | 'ready' | 'error'>('loading')
 const errorMessage = ref('')
@@ -73,7 +91,9 @@ const backendOk = ref<boolean | null>(null)
 const obsLoading = ref(false)
 const obsError = ref<string | null>(null)
 const obsResult = ref<ObservationsResponse | null>(null)
-const activeTarget = ref<SkyTarget | null>(SKY_TARGETS[0] ?? null)
+const activeTarget = ref<SkyTarget | null>(
+  resolveStartView(readFromQuery(route.query).state).target,
+)
 const stage = ref<ViewStage>('idle')
 const stageHint = ref('Elige una nebulosa · el cielo es el protagonista')
 
@@ -93,10 +113,21 @@ const blinkOn = ref(false)
 const blinkMs = ref(700)
 const blinkIndex = ref(0)
 
+const isEmbed = computed(() => readFromQuery(route.query).state.embed)
+const urlNotice = ref<string | null>(null)
+const shareOpen = ref(false)
+const copyFeedback = ref<CopyFeedback | null>(null)
+const shareLinkField = ref<HTMLInputElement | null>(null)
+const embedCodeField = ref<HTMLTextAreaElement | null>(null)
+
 let coordTimer: ReturnType<typeof setInterval> | null = null
 let blinkTimer: ReturnType<typeof setInterval> | null = null
+let noticeTimer: ReturnType<typeof setTimeout> | null = null
+let copyTimer: ReturnType<typeof setTimeout> | null = null
 let journeyToken = 0
 let stampLoadToken = 0
+/** true mientras se aplica una vista llegada por URL: no se re-escribe la URL. */
+let syncingFromUrl = false
 
 const obsPreview = computed(() => (obsResult.value?.observations ?? []).slice(0, 5))
 const activeStamp = computed(() => stamps.value[blinkIndex.value] ?? stamps.value[0] ?? null)
@@ -134,6 +165,85 @@ const zoomLabel = computed(() => {
   return `${f.toFixed(1)}°`
 })
 
+function absoluteHref(query: LocationQueryRaw): string {
+  return new URL(router.resolve({ name: 'mission', query }).href, window.location.origin).href
+}
+
+/** URL de la vista actual (la misma que copia "Copiar enlace"). */
+const shareUrl = computed(() =>
+  new URL(router.resolve(route.fullPath).href, window.location.origin).href,
+)
+
+/** Vista actual en la app completa (sin `embed`), para "Abrir en Planet-X". */
+const fullAppUrl = computed(() => {
+  const query: LocationQueryRaw = { ...route.query }
+  delete query.embed
+  return absoluteHref(query)
+})
+
+const embedCode = computed(() => {
+  const src = absoluteHref({ ...route.query, embed: '1' })
+    .replace(/&/g, '&amp;')
+    .replace(/"/g, '&quot;')
+  return `<iframe src="${src}" width="800" height="500" style="border:0" loading="lazy" allow="clipboard-write" title="Planet-X · Atlas SPHEREx"></iframe>`
+})
+
+function roundFov(fov: number): number {
+  return Number(fov.toFixed(fov < 1 ? 3 : 2))
+}
+
+/**
+ * Vista inicial según la URL, por prioridad:
+ * a) `ra` + `dec`; b) preset de `target`; c) objetivo por defecto.
+ */
+function resolveStartView(state: SkyUrlState): StartView {
+  const preset = state.target ? (skyTargetById(state.target) ?? null) : null
+  if (state.ra != null && state.dec != null) {
+    return { ra: state.ra, dec: state.dec, fov: state.fov ?? preset?.fovHd ?? 0.55, target: preset }
+  }
+  if (preset) {
+    return { ra: preset.ra, dec: preset.dec, fov: state.fov ?? preset.fovHd, target: preset }
+  }
+  const first = SKY_TARGETS[0]
+  if (first) {
+    return { ra: first.ra, dec: first.dec, fov: state.fov ?? first.fovHd, target: first }
+  }
+  return {
+    ra: Number(raInput.value),
+    dec: Number(decInput.value),
+    fov: state.fov ?? 1.8,
+    target: null,
+  }
+}
+
+function showUrlNotice(message: string | null) {
+  if (noticeTimer) clearTimeout(noticeTimer)
+  noticeTimer = null
+  urlNotice.value = message
+  if (message) {
+    noticeTimer = setTimeout(() => {
+      urlNotice.value = null
+      noticeTimer = null
+    }, 6000)
+  }
+}
+
+/** Distancia angular aproximada en grados (suficiente para umbrales de ~1′). */
+function angularDistanceDeg(ra1: number, dec1: number, ra2: number, dec2: number): number {
+  const dRa = ((((ra2 - ra1) % 360) + 540) % 360) - 180
+  const cosDec = Math.cos((((dec1 + dec2) / 2) * Math.PI) / 180)
+  return Math.hypot(dRa * cosDec, dec2 - dec1)
+}
+
+/** Vista actual del atlas para escribirla en la URL (o null si aún no hay coords). */
+function currentView(): SkyViewState | null {
+  const ra = Number(liveRa.value)
+  const dec = Number(liveDec.value)
+  const fov = Number(fovInput.value)
+  if (!Number.isFinite(ra) || !Number.isFinite(dec) || !Number.isFinite(fov)) return null
+  return { ra, dec, fov, target: activeTarget.value?.id ?? null }
+}
+
 async function waitForHostSize(el: HTMLElement, tries = 20): Promise<boolean> {
   for (let i = 0; i < tries; i++) {
     const rect = el.getBoundingClientRect()
@@ -162,13 +272,15 @@ async function boot() {
     host.value.innerHTML = ''
     surveyId.value = 'esa-dss'
     const hipsUrl = LOCAL_HIPS['esa-dss'].url
-    const first = SKY_TARGETS[0]
-    const target = first ? `${first.ra} ${first.dec}` : `${raInput.value} ${decInput.value}`
-    const startFov = first?.fovHd ?? 1.8
+    const parsed = readFromQuery(route.query)
+    const start = resolveStartView(parsed.state)
+    const target = `${start.ra} ${start.dec}`
+    const startFov = start.fov
 
-    raInput.value = String(first?.ra ?? raInput.value)
-    decInput.value = String(first?.dec ?? decInput.value)
-    fovInput.value = startFov
+    raInput.value = start.ra.toFixed(6)
+    decInput.value = start.dec.toFixed(6)
+    fovInput.value = roundFov(startFov)
+    showUrlNotice(describeInvalidQuery(parsed))
 
     // Comprobar que el proxy HiPS responde antes de pintar.
     skyHint.value = 'Comprobando tiles…'
@@ -209,7 +321,7 @@ async function boot() {
     window.setTimeout(() => {
       try {
         applyLocalHips(A, aladin, surveyId.value)
-        aladin.gotoRaDec(Number(raInput.value), Number(decInput.value))
+        aladin.gotoRaDec(start.ra, start.dec)
         setAladinFoV(aladin, startFov)
         refreshAladinView(aladin, host.value)
         skyHint.value = 'Atlas listo · rueda para zoom'
@@ -221,17 +333,17 @@ async function boot() {
     aladinRef.value = aladin
     status.value = 'ready'
     stage.value = 'hd'
-    if (first) {
-      activeTarget.value = first
-      stageHint.value = first.name
-    }
+    activeTarget.value = start.target
+    stageHint.value =
+      start.target?.name ?? `Apuntando AR ${start.ra.toFixed(5)}° · Dec ${start.dec.toFixed(5)}°`
     syncCoords()
     startCoordWatch()
     void pingBackend()
-    if (first) {
-      void loadObservationsAt(first.ra, first.dec, first.obsRadius)
-      void loadStampsAt(first.ra, first.dec)
+    // En modo embed no hay panel de datos: solo hacen falta los sellos del reproductor.
+    if (!isEmbed.value) {
+      void loadObservationsAt(start.ra, start.dec, start.target?.obsRadius ?? 90)
     }
+    void loadStampsAt(start.ra, start.dec)
   } catch (error) {
     status.value = 'error'
     errorMessage.value =
@@ -273,8 +385,13 @@ function syncFoVFromAladin() {
   try {
     const fov = aladin.getFov?.()?.[0]
     if (typeof fov === 'number' && Number.isFinite(fov)) {
-      const rounded = Number(fov.toFixed(fov < 1 ? 3 : 2))
-      if (Math.abs(rounded - Number(fovInput.value)) > 0.01) fovInput.value = rounded
+      const rounded = roundFov(fov)
+      const current = Number(fovInput.value)
+      // Umbral relativo (1 %): con FOV pequeños un 0.01° fijo ocultaba el zoom de la URL.
+      const threshold = Math.max(0.001, Math.abs(current) * 0.01)
+      if (!Number.isFinite(current) || Math.abs(rounded - current) > threshold) {
+        fovInput.value = rounded
+      }
     }
   } catch {
     /* ignore */
@@ -293,12 +410,14 @@ function sleep(ms: number) {
   })
 }
 
-async function animateFoV(from: number, to: number, ms = 1100) {
+/** Anima el FOV; se interrumpe si empieza otro viaje (nuevo destino, Atrás/Adelante…). */
+async function animateFoV(from: number, to: number, ms = 1100, token = journeyToken) {
   const aladin = aladinRef.value
   if (!aladin) return
   const steps = 22
   const dt = ms / steps
   for (let i = 1; i <= steps; i++) {
+    if (token !== journeyToken) return
     const t = i / steps
     const eased = 1 - (1 - t) ** 3
     const fov = from + (to - from) * eased
@@ -306,20 +425,9 @@ async function animateFoV(from: number, to: number, ms = 1100) {
     fovInput.value = Number(fov.toFixed(fov < 1 ? 3 : 2))
     await sleep(dt)
   }
+  if (token !== journeyToken) return
   setAladinFoV(aladin, to)
   fovInput.value = Number(to.toFixed(to < 1 ? 3 : 2))
-}
-
-/** Acepta "268.34", "268.34°", "+3.58", "3,58". */
-function parseCoord(raw: string): number | null {
-  const cleaned = String(raw ?? '')
-    .trim()
-    .replace(/°/g, '')
-    .replace(/,/g, '.')
-    .replace(/\s+/g, '')
-  if (!cleaned) return null
-  const n = Number(cleaned)
-  return Number.isFinite(n) ? n : null
 }
 
 function goToCoords() {
@@ -329,17 +437,18 @@ function goToCoords() {
     return
   }
 
-  const ra = parseCoord(raInput.value)
-  const dec = parseCoord(decInput.value)
+  const ra = parseCoord(raInput.value, 'ra')
+  const dec = parseCoord(decInput.value, 'dec')
   if (ra == null || dec == null) {
-    searchError.value = 'Coords inválidas. Usa números, ej. 268.33975 y 3.58428'
+    searchError.value =
+      'Coords inválidas. Usa grados (268.33975 / 3.58428) o sexagesimal (17h53m21.5s / +03d35m03s)'
     return
   }
-  if (ra < 0 || ra >= 360) {
-    searchError.value = 'AR debe estar entre 0 y 360'
+  if (!isValidRa(ra)) {
+    searchError.value = 'AR debe estar entre 0 y 360° (o 0h y 24h)'
     return
   }
-  if (dec < -90 || dec > 90) {
+  if (!isValidDec(dec)) {
     searchError.value = 'Dec debe estar entre -90 y 90'
     return
   }
@@ -425,11 +534,11 @@ async function loadObservationsAt(ra: number, dec: number, radius = 90) {
 
 async function loadObservations() {
   const ra =
-    parseCoord(liveRa.value === '—' ? raInput.value : liveRa.value) ??
-    parseCoord(raInput.value)
+    parseCoord(liveRa.value === '—' ? raInput.value : liveRa.value, 'ra') ??
+    parseCoord(raInput.value, 'ra')
   const dec =
-    parseCoord(liveDec.value === '—' ? decInput.value : liveDec.value) ??
-    parseCoord(decInput.value)
+    parseCoord(liveDec.value === '—' ? decInput.value : liveDec.value, 'dec') ??
+    parseCoord(decInput.value, 'dec')
   if (ra == null || dec == null) {
     searchError.value = 'No hay coordenadas válidas para consultar'
     searchOpen.value = true
@@ -539,11 +648,21 @@ function openStampsTab() {
   sideTab.value = 'stamps'
 }
 
-async function visitTarget(target: SkyTarget) {
+async function visitTarget(
+  target: SkyTarget,
+  { fromUrl = false, fov }: { fromUrl?: boolean; fov?: number } = {},
+) {
   const aladin = aladinRef.value
   if (!aladin || status.value !== 'ready') return
 
   const token = ++journeyToken
+  const fovHd = fov ?? target.fovHd
+  if (fromUrl) {
+    cancelQueryWrite()
+  } else {
+    // Elegir un destino es una acción discreta: entrada nueva en el historial (Atrás vuelve).
+    void commitToQuery({ ra: target.ra, dec: target.dec, fov: fovHd, target: target.id }, 'push')
+  }
   activeTarget.value = target
   obsError.value = null
   raInput.value = target.ra.toFixed(6)
@@ -564,15 +683,172 @@ async function visitTarget(target: SkyTarget) {
   await sleep(350)
   if (token !== journeyToken) return
 
-  await animateFoV(target.fovWide, target.fovHd, 1200)
+  await animateFoV(target.fovWide, fovHd, 1200, token)
   if (token !== journeyToken) return
 
   stage.value = 'hd'
   if (target.id === 'wiseview-demo') sideTab.value = 'stamps'
   await Promise.all([
-    loadObservationsAt(target.ra, target.dec, target.obsRadius),
+    isEmbed.value
+      ? Promise.resolve()
+      : loadObservationsAt(target.ra, target.dec, target.obsRadius),
     loadStampsAt(target.ra, target.dec, 'epochs'),
   ])
+}
+
+/**
+ * Aplica una vista llegada por URL con la página abierta (Atrás/Adelante, navegación
+ * interna) moviendo el atlas existente, sin reiniciar Aladin.
+ */
+async function applyQueryToAtlas(query: LocationQuery) {
+  const aladin = aladinRef.value
+  if (!aladin) return
+
+  const parsed = readFromQuery(query)
+  showUrlNotice(describeInvalidQuery(parsed, { live: true }))
+  const { ra, dec, fov, target } = parsed.state
+  const preset = target ? (skyTargetById(target) ?? null) : null
+
+  if (ra == null || dec == null) {
+    if (preset && preset.id !== activeTarget.value?.id) {
+      await visitTarget(preset, { fromUrl: true, fov: fov ?? undefined })
+    } else if (fov != null) {
+      syncingFromUrl = true
+      cancelQueryWrite()
+      fovInput.value = roundFov(fov)
+      applyFoVLive()
+      await nextTick()
+      syncingFromUrl = false
+    }
+    return
+  }
+
+  syncingFromUrl = true
+  cancelQueryWrite()
+  journeyToken += 1 // corta una animación de visitTarget en curso
+  try {
+    const prevTargetId = activeTarget.value?.id ?? null
+    const prevRa = Number(liveRa.value)
+    const prevDec = Number(liveDec.value)
+
+    activeTarget.value = preset
+    raInput.value = ra.toFixed(6)
+    decInput.value = dec.toFixed(6)
+    aladin.gotoRaDec(ra, dec)
+    if (fov != null) {
+      fovInput.value = roundFov(fov)
+      setAladinFoV(aladin, fov)
+    }
+    stage.value = 'hd'
+    stageHint.value = preset?.name ?? `Apuntando AR ${ra.toFixed(5)}° · Dec ${dec.toFixed(5)}°`
+    syncCoords()
+    syncFoVFromAladin()
+
+    const moved =
+      !Number.isFinite(prevRa) ||
+      !Number.isFinite(prevDec) ||
+      angularDistanceDeg(prevRa, prevDec, ra, dec) > RELOAD_DISTANCE_DEG
+    if (moved || (preset?.id ?? null) !== prevTargetId) {
+      if (!isEmbed.value) void loadObservationsAt(ra, dec, preset?.obsRadius ?? 90)
+      void loadStampsAt(ra, dec)
+    }
+    // Deja que corran los watchers de escritura mientras el flag sigue activo.
+    await nextTick()
+  } finally {
+    syncingFromUrl = false
+  }
+}
+
+// Atlas → URL: posición, FOV y objetivo (replace con debounce, sin historial).
+watch(
+  [liveRa, liveDec, fovInput, () => activeTarget.value?.id ?? null, stage],
+  () => {
+    if (syncingFromUrl || status.value !== 'ready' || stage.value === 'flying') return
+    const view = currentView()
+    if (view) writeToQuery(view)
+  },
+)
+
+// URL → atlas: cambios de query con la página abierta (ignora las escrituras propias).
+watch(
+  () => route.query,
+  (query) => {
+    if (route.name !== 'mission' || status.value !== 'ready' || isOwnQuery(query)) return
+    void applyQueryToAtlas(query)
+  },
+)
+
+function toggleSearch() {
+  searchOpen.value = !searchOpen.value
+  if (searchOpen.value) shareOpen.value = false
+}
+
+function toggleShare() {
+  shareOpen.value = !shareOpen.value
+  if (shareOpen.value) searchOpen.value = false
+}
+
+async function copyText(
+  text: string,
+  field: HTMLInputElement | HTMLTextAreaElement | null,
+): Promise<boolean> {
+  try {
+    if (navigator.clipboard?.writeText) {
+      await navigator.clipboard.writeText(text)
+      return true
+    }
+  } catch {
+    /* sin permiso (iframe, http): probamos el método clásico */
+  }
+  try {
+    const area = document.createElement('textarea')
+    area.value = text
+    area.setAttribute('readonly', '')
+    area.style.position = 'fixed'
+    area.style.opacity = '0'
+    document.body.appendChild(area)
+    area.select()
+    const ok = document.execCommand('copy')
+    area.remove()
+    if (ok) return true
+  } catch {
+    /* ignore */
+  }
+  // Último recurso: dejar el texto seleccionado para Ctrl+C.
+  field?.focus()
+  field?.select()
+  return false
+}
+
+function flashCopy(which: CopyFeedback['which'], ok: boolean) {
+  if (copyTimer) clearTimeout(copyTimer)
+  copyFeedback.value = { which, ok }
+  copyTimer = setTimeout(() => {
+    copyFeedback.value = null
+    copyTimer = null
+  }, 2000)
+}
+
+function copyLabel(which: CopyFeedback['which'], idle: string): string {
+  const feedback = copyFeedback.value
+  if (feedback?.which !== which) return idle
+  return feedback.ok ? '¡Copiado!' : 'Copia con Ctrl+C'
+}
+
+async function copyLink() {
+  // Que la URL refleje la vista exacta antes de copiarla.
+  await flushQueryWrite()
+  flashCopy('link', await copyText(window.location.href, shareLinkField.value))
+}
+
+async function copyEmbed() {
+  await flushQueryWrite()
+  flashCopy('embed', await copyText(embedCode.value, embedCodeField.value))
+}
+
+function selectField(event: Event) {
+  const el = event.target
+  if (el instanceof HTMLInputElement || el instanceof HTMLTextAreaElement) el.select()
 }
 
 function useObsTarget(obs: Record<string, unknown>) {
@@ -616,6 +892,8 @@ onUnmounted(() => {
   journeyToken += 1
   stopCoordWatch()
   stopBlink()
+  if (noticeTimer) clearTimeout(noticeTimer)
+  if (copyTimer) clearTimeout(copyTimer)
   try {
     aladinRef.value?.remove?.()
   } catch {
@@ -628,11 +906,11 @@ onUnmounted(() => {
 </script>
 
 <template>
-  <div class="sky">
+  <div class="sky" :class="{ 'sky--embed': isEmbed }">
     <div ref="host" class="sky__canvas" aria-label="Atlas Aladin Lite" />
 
     <!-- HUD: una sola franja superior, sin FABs sueltos que choquen -->
-    <header class="sky__top">
+    <header v-if="!isEmbed" class="sky__top">
       <div class="sky__brand">
         <p class="sky__kicker">Atlas SPHEREx · {{ stageLabel }}</p>
         <h1 class="sky__title">{{ activeTarget?.name || 'Cielo HD' }}</h1>
@@ -655,29 +933,53 @@ onUnmounted(() => {
         >
           Datos
         </button>
-        <button type="button" class="btn" @click="searchOpen = !searchOpen">Buscar</button>
+        <button
+          type="button"
+          class="btn"
+          :class="{ 'btn--on': searchOpen }"
+          @click="toggleSearch"
+        >
+          Buscar
+        </button>
         <button type="button" class="btn" @click="openStampsTab">Sellos</button>
+        <button
+          type="button"
+          class="btn"
+          :class="{ 'btn--on': shareOpen }"
+          @click="toggleShare"
+        >
+          Compartir
+        </button>
         <button type="button" class="btn btn--gold" @click="openIn3d">3D</button>
         <button type="button" class="btn btn--ghost" @click="goBack">Salir</button>
       </div>
     </header>
 
-    <div v-if="status === 'ready' && searchOpen" class="sky__search">
+    <div v-if="urlNotice" class="sky__notice" role="status">
+      <span>{{ urlNotice }}</span>
+      <button type="button" class="panel__x" aria-label="Cerrar aviso" @click="showUrlNotice(null)">
+        ×
+      </button>
+    </div>
+
+    <div v-if="status === 'ready' && searchOpen && !isEmbed" class="sky__search">
       <label>
-        AR °
+        AR
         <input
           v-model="raInput"
-          inputmode="decimal"
-          placeholder="268.33975"
+          autocomplete="off"
+          spellcheck="false"
+          placeholder="268.33975 · 17h53m21.5s"
           @keydown.enter.prevent="goToCoords"
         />
       </label>
       <label>
-        Dec °
+        Dec
         <input
           v-model="decInput"
-          inputmode="decimal"
-          placeholder="3.58428"
+          autocomplete="off"
+          spellcheck="false"
+          placeholder="3.58428 · +03d35m03s"
           @keydown.enter.prevent="goToCoords"
         />
       </label>
@@ -695,7 +997,31 @@ onUnmounted(() => {
       <p v-if="searchError" class="sky__search-err">{{ searchError }}</p>
     </div>
 
-    <aside v-if="status === 'ready' && catalogOpen" class="panel panel--left">
+    <div v-if="status === 'ready' && shareOpen && !isEmbed" class="sky__search sky__share">
+      <label class="sky__share-field">
+        Enlace a esta vista
+        <input ref="shareLinkField" :value="shareUrl" readonly @focus="selectField" />
+      </label>
+      <button type="button" class="btn btn--gold" @click="copyLink">
+        {{ copyLabel('link', 'Copiar enlace') }}
+      </button>
+      <label class="sky__share-field">
+        Código embed (iframe)
+        <textarea
+          ref="embedCodeField"
+          :value="embedCode"
+          readonly
+          rows="3"
+          @focus="selectField"
+        />
+      </label>
+      <button type="button" class="btn" @click="copyEmbed">
+        {{ copyLabel('embed', 'Copiar código embed') }}
+      </button>
+      <button type="button" class="btn btn--ghost" @click="shareOpen = false">Cerrar</button>
+    </div>
+
+    <aside v-if="status === 'ready' && catalogOpen && !isEmbed" class="panel panel--left">
       <div class="panel__head">
         <h2>Destinos</h2>
         <button type="button" class="panel__x" @click="catalogOpen = false">×</button>
@@ -715,7 +1041,7 @@ onUnmounted(() => {
       </div>
     </aside>
 
-    <aside v-if="status === 'ready' && drawerOpen" class="panel panel--right">
+    <aside v-if="status === 'ready' && drawerOpen && !isEmbed" class="panel panel--right">
       <div class="panel__head">
         <div class="tabs">
           <button
@@ -879,7 +1205,35 @@ onUnmounted(() => {
         </div>
       </div>
     </aside>
-    <footer v-if="status === 'ready'" class="sky__bar">
+    <!-- Modo embed (?embed=1): solo atlas + reproductor compacto + enlace a la app -->
+    <template v-if="status === 'ready' && isEmbed">
+      <a class="embed-open" :href="fullAppUrl" target="_blank" rel="noopener noreferrer">
+        Abrir en Planet-X ↗
+      </a>
+      <div class="embed-player">
+        <strong class="embed-player__title">{{ activeTarget?.name || 'Cielo HD' }}</strong>
+        <img v-if="activeStamp" :src="activeStamp.jpegUrl" :alt="activeStamp.label" />
+        <p v-else class="embed-player__meta">
+          {{ stampLoading ? 'Cargando épocas…' : stampError || 'Sin épocas disponibles' }}
+        </p>
+        <div class="embed-player__row">
+          <button
+            type="button"
+            class="mini mini--gold"
+            :disabled="stamps.length < 2"
+            @click="toggleBlink"
+          >
+            {{ blinkOn ? 'Stop' : 'Blink' }}
+          </button>
+          <span v-if="activeStamp">
+            {{ activeStamp.label }}
+            <small v-if="activeStamp.sub">{{ activeStamp.sub }}</small>
+          </span>
+        </div>
+      </div>
+    </template>
+
+    <footer v-if="status === 'ready' && !isEmbed" class="sky__bar">
       <div class="sky__bar-coords">
         <span>AR {{ liveRa }}°</span>
         <span>Dec {{ liveDec }}°</span>
@@ -941,7 +1295,10 @@ onUnmounted(() => {
 .mini,
 .tab,
 .stamp,
-.zoom-btn {
+.zoom-btn,
+.sky__notice,
+.embed-open,
+.embed-player {
   pointer-events: auto;
 }
 
@@ -1083,6 +1440,125 @@ onUnmounted(() => {
 
 .sky__search-wide {
   min-width: 10rem;
+}
+
+.sky__share-field {
+  flex: 1 1 100%;
+}
+
+.sky__share-field input,
+.sky__share-field textarea {
+  width: 100%;
+  min-width: 0;
+  box-sizing: border-box;
+  font-family: ui-monospace, monospace;
+  font-size: 0.85rem;
+  letter-spacing: 0;
+  text-transform: none;
+}
+
+.sky__share-field textarea {
+  resize: none;
+  border: 1px solid rgba(255, 255, 255, 0.25);
+  background: rgba(0, 0, 0, 0.55);
+  color: #fff;
+  padding: 0.5rem 0.6rem;
+}
+
+.sky__notice {
+  position: absolute;
+  top: 5.5rem;
+  left: 50%;
+  z-index: 9;
+  transform: translateX(-50%);
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  width: max-content;
+  max-width: calc(100% - 2rem);
+  padding: 0.6rem 0.75rem 0.6rem 1rem;
+  border: 1px solid rgba(253, 164, 175, 0.55);
+  border-radius: 0.6rem;
+  background: rgba(30, 8, 12, 0.92);
+  color: #fecdd3;
+  font-size: 0.92rem;
+  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.45);
+}
+
+.sky--embed .sky__notice {
+  top: 0.75rem;
+}
+
+.embed-open {
+  position: absolute;
+  top: 0.75rem;
+  right: 0.75rem;
+  z-index: 6;
+  padding: 0.45rem 0.8rem;
+  border: 1px solid rgba(232, 196, 120, 0.6);
+  border-radius: 999px;
+  background: rgba(0, 0, 0, 0.62);
+  color: #ffe9b8;
+  font-size: 0.78rem;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  text-decoration: none;
+}
+
+.embed-player {
+  position: absolute;
+  left: 0.75rem;
+  bottom: 0.75rem;
+  z-index: 6;
+  display: grid;
+  gap: 0.4rem;
+  width: min(11rem, calc(100% - 1.5rem));
+  padding: 0.55rem;
+  border: 1px solid rgba(255, 255, 255, 0.18);
+  border-radius: 0.65rem;
+  background: rgba(5, 7, 12, 0.82);
+  backdrop-filter: blur(10px);
+}
+
+.embed-player__title {
+  font-size: 0.85rem;
+  font-weight: 650;
+  line-height: 1.2;
+}
+
+.embed-player img {
+  width: 100%;
+  aspect-ratio: 1;
+  object-fit: cover;
+  border: 1px solid rgba(255, 255, 255, 0.2);
+  background: #000;
+}
+
+.embed-player__meta {
+  margin: 0;
+  font-size: 0.78rem;
+  color: rgba(255, 255, 255, 0.65);
+}
+
+.embed-player__row {
+  display: flex;
+  align-items: center;
+  gap: 0.45rem;
+  font-size: 0.7rem;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: rgba(255, 255, 255, 0.75);
+}
+
+.embed-player__row small {
+  display: block;
+  letter-spacing: 0.02em;
+  text-transform: none;
+  color: rgba(255, 255, 255, 0.5);
+}
+
+.mini:disabled {
+  opacity: 0.45;
 }
 
 .panel {

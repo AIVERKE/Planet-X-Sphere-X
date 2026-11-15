@@ -146,6 +146,59 @@ Variables (`frontend/.env`):
 VITE_API_URL=http://localhost:8000
 ```
 
+### Enlaces, estado en la URL y embed (`/mision?ra=&dec=&fov=`)
+
+El atlas de la misión (`/mision`, alias `/mission`) guarda la vista en la URL: al abrir un enlace se centra en esa posición, al moverse o hacer zoom la URL se actualiza sola (con `replace`, sin llenar el historial) y al recargar (F5) se conserva la vista.
+
+| Parámetro | Formato | Descripción |
+|-----------|---------|-------------|
+| `ra`      | grados `0–360` o sexagesimal en horas: `08h55m10.8s`, `08:55:10.8`, `08 55 10.8` | Ascensión recta (ICRS). Va siempre en par con `dec`. |
+| `dec`     | grados `−90–90` o sexagesimal: `-7d14m42.5s`, `-07:14:42.5`, `-7°14′42.5″` | Declinación (ICRS). |
+| `fov`     | grados | Campo de visión. Se acota a `0.08–40`. |
+| `target`  | id de preset | `barnard`, `eps_indi_b`, `wise0855`, `rw_aur`, `r_dra` y los destinos del atlas (`orion`, `lagoon`, `eagle`, `carina`, `helix`, `crab`, `rho-oph`, `wiseview-demo`, `spherex-l2-demo`). |
+| `embed`   | `1` | Modo compacto para `<iframe>`: solo el atlas, el reproductor de épocas y el enlace "Abrir en Planet-X". |
+| `band`, `play` | — | **Pendiente (SPX-001)**: llegarán con el reproductor de bandas D1–D6. |
+
+La posición inicial se resuelve con esta prioridad:
+
+1. `ra` + `dec` de la URL.
+2. `target`.
+3. El destino por defecto.
+
+Si vienen `ra`/`dec` y `target`, la posición sale de las coordenadas y el panel de información, del preset. Los parámetros inválidos (fuera de rango, mal formados o un `target` inexistente) se ignoran: se usa el valor por defecto y aparece un aviso no bloqueante. La URL se reescribe en forma canónica, en decimal y con RA/Dec a 5 decimales y FOV a 3.
+
+Ejemplos:
+
+```text
+/mision?ra=133.7951&dec=-7.2451&fov=0.3
+/mision?ra=08h55m10.831s&dec=-7d14m42.53s
+/mision?target=wise0855
+/mision?target=barnard&embed=1
+```
+
+Al elegir un destino en "Destinos" se crea una entrada en el historial, así que Atrás/Adelante salta entre destinos sin recargar el atlas. Editar la URL a mano y pulsar Enter recarga la página (lo hace el navegador), y la vista se restaura desde la URL.
+
+El botón **Compartir** copia el enlace de la vista actual y genera el código para embeber:
+
+```html
+<iframe src="https://<tu-dominio>/mision?target=wise0855&amp;embed=1"
+        width="800" height="500" style="border:0" loading="lazy"
+        allow="clipboard-write" title="Planet-X · Atlas SPHEREx"></iframe>
+```
+
+> Las posiciones de los presets oficiales son estáticas: J2000 de SIMBAD, salvo WISE 0855, que usa la época de su designación (~2014). La corrección por movimiento propio llegará con SPX-002.
+>
+> Para que el embed funcione en producción, el servidor no debe enviar `X-Frame-Options: DENY` ni una `Content-Security-Policy` con `frame-ancestors` restrictivo.
+
+### Tests del frontend
+
+```powershell
+cd frontend
+npm run test
+```
+
+Usa [Vitest](https://vitest.dev/) y cubre el parseo y la validación de coordenadas (`parseCoord`, `readFromQuery`) y la escritura en la URL.
+
 ## Convenciones
 
 - Código en inglés; documentación en español.

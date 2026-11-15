@@ -4,9 +4,15 @@ export type SkyTarget = {
   id: string
   name: string
   aka?: string
-  kind: 'nebula' | 'cluster' | 'galaxy' | 'region'
+  kind: 'nebula' | 'cluster' | 'galaxy' | 'region' | 'star' | 'brown-dwarf'
   ra: number
   dec: number
+  /** Movimiento propio en AR·cos(Dec), mas/año (SIMBAD). Para la corrección por época (SPX-002). */
+  pmra?: number
+  /** Movimiento propio en Dec, mas/año (SIMBAD). */
+  pmdec?: number
+  /** Época (año juliano) de `ra`/`dec`. Sin valor = posición fija (objetos extensos). */
+  epoch?: number
   /** FOV inicial “crudo” (grados) — contexto amplio, menos detalle. */
   fovWide: number
   /** FOV HD (grados) tras el acercamiento. */
@@ -32,6 +38,97 @@ export const SKY_TARGETS: SkyTarget[] = [
     blurb: 'Coords del FITS oficial IRSA; aquí sale en atlas + sellos + /api/observations.',
     report:
       'Este punto es el CRVAL del cutout Level-2 SPHEREx (obs_id 2025W33_2C_0321_1, banda D6). No hace falta bajar el FITS de ~16 MB: el backend lista el access_url/cutout_url y el frontend renderiza el cielo HD + sellos PanSTARRS en esas coordenadas.',
+  },
+  /*
+   * Objetivos oficiales del reto (ids estables: se usan en `?target=`).
+   * Posiciones ICRS de SIMBAD, sin propagar: SPX-002 las sustituirá por la posición
+   * corregida por época usando `pmra` / `pmdec` / `epoch`.
+   */
+  {
+    id: 'barnard',
+    name: 'Estrella de Barnard',
+    aka: 'GJ 699 · 1.83 pc',
+    kind: 'star',
+    ra: 269.452077,
+    dec: 4.693365,
+    pmra: -801.551,
+    pmdec: 10362.394,
+    epoch: 2000,
+    fovWide: 1.5,
+    fovHd: 0.3,
+    obsRadius: 60,
+    blurb: 'La estrella con mayor movimiento propio conocido (~10.4″/año).',
+    report:
+      'Enana roja a ~6 años luz, la estrella individual más cercana después del sistema α Centauri. Se desplaza ~10.4″ por año hacia el norte: entre épocas unWISE el salto es evidente. Posición J2000 (SIMBAD); la corrección por época llega con SPX-002.',
+  },
+  {
+    id: 'eps_indi_b',
+    name: 'ε Indi B',
+    aka: 'Binaria de enanas marrones · 3.6 pc',
+    kind: 'brown-dwarf',
+    ra: 331.044147,
+    dec: -56.782844,
+    pmra: 3981.977,
+    pmdec: -2466.832,
+    epoch: 2000,
+    fovWide: 1.5,
+    fovHd: 0.3,
+    obsRadius: 60,
+    blurb: 'Par de enanas marrones que orbita a ε Indi A (~4.7″/año).',
+    report:
+      'ε Indi Ba y Bb son dos enanas marrones (T1 + T6) ligadas a la estrella ε Indi A, a ~12 años luz. Su movimiento propio de ~4.7″/año las hace ideales para el blink por épocas en infrarrojo. Posición J2000 (SIMBAD).',
+  },
+  {
+    id: 'wise0855',
+    name: 'WISE 0855−0714',
+    aka: 'Enana marrón Y · 2.28 pc',
+    kind: 'brown-dwarf',
+    /** Posición de la designación WISE J085510.83−071442.5 (época ~2014, alineada con unWISE). */
+    ra: 133.795129,
+    dec: -7.245147,
+    pmra: -8123.7,
+    pmdec: 673.2,
+    epoch: 2014,
+    fovWide: 1.5,
+    fovHd: 0.3,
+    obsRadius: 90,
+    blurb: 'La enana marrón más fría conocida, invisible en óptico.',
+    report:
+      'WISE 0855−0714 es la enana marrón más fría conocida (~250–285 K), a ~7.4 años luz. Casi no emite en óptico pero brilla en el infrarrojo medio. Su movimiento propio (~8.1″/año) se aprecia en el blink unWISE. Se usa la posición de su designación (época ~2014) en lugar de la J2000 de SIMBAD, que queda ~3.5′ desplazada.',
+  },
+  {
+    id: 'rw_aur',
+    name: 'RW Aurigae',
+    aka: 'Estrella T Tauri · Tauro-Auriga',
+    kind: 'star',
+    ra: 76.956526,
+    dec: 30.401438,
+    pmra: 7.23,
+    pmdec: -20.33,
+    epoch: 2000,
+    fovWide: 1.5,
+    fovHd: 0.3,
+    obsRadius: 60,
+    blurb: 'Sistema joven con disco y oscurecimientos profundos.',
+    report:
+      'RW Aurigae es un sistema T Tauri joven con disco protoplanetario y episodios de oscurecimiento de varias magnitudes. Su variabilidad infrarroja la hace interesante para comparar épocas y bandas. Posición J2000 (SIMBAD).',
+  },
+  {
+    id: 'r_dra',
+    name: 'R Draconis',
+    aka: 'Variable Mira',
+    kind: 'star',
+    ra: 248.167611,
+    dec: 66.754979,
+    pmra: -20.643,
+    pmdec: 6.149,
+    epoch: 2000,
+    fovWide: 1.5,
+    fovHd: 0.3,
+    obsRadius: 60,
+    blurb: 'Gigante roja pulsante con período de ~245 días.',
+    report:
+      'R Draconis es una variable tipo Mira: una gigante roja que pulsa con un período de ~245 días y cambia varias magnitudes de brillo. En infrarrojo cercano domina la emisión de su envolvente fría. Posición J2000 (SIMBAD).',
   },
   {
     id: 'orion',
