@@ -59,6 +59,11 @@ const spherexError = ref('')
 const reloading = ref(false)
 /** Segundos en la espera SPHEREx (IRSA puede demorar). */
 const waitSeconds = ref(0)
+/**
+ * Filtros de imagen (saturación + contraste) a mano del usuario.
+ * Apagados por defecto: en campos brillantes (nebulosas) quemaban la foto en blanco.
+ */
+const filtersOn = ref(false)
 /** Saturación del panel HD (100 = normal). */
 const saturation = ref(125)
 /** Contraste de las fotos del blink (100 = normal). */
@@ -227,6 +232,15 @@ function toWiseFrames(stamps: EpochStamp[]): BlinkFrame[] {
 }
 
 function revokeHdBlobs() {
+  if (!hdBlobUrls.size) return
+  // load() puede dejar los cuadros viejos en pantalla mientras recarga: que su
+  // panel HD vuelva al crudo antes de revocar, o el <img> pide un blob muerto
+  // (net::ERR_FILE_NOT_FOUND) en cada cuadro del blink.
+  if (frames.value.some((frame) => hdBlobUrls.has(frame.rightSrc))) {
+    frames.value = frames.value.map((frame) =>
+      hdBlobUrls.has(frame.rightSrc) ? { ...frame, rightSrc: frame.leftSrc } : frame,
+    )
+  }
   for (const url of hdBlobUrls) URL.revokeObjectURL(url)
   hdBlobUrls.clear()
 }
@@ -263,6 +277,8 @@ async function useWiseNow(asFallback = true) {
     : ''
   errorMessage.value = ''
   frames.value = []
+  // Los HD de la carga anterior ya no se muestran: liberarlos (antes se filtraban).
+  revokeHdBlobs()
   availableBands.value = []
   band.value = null
   phase.value = 'meta'
@@ -584,11 +600,16 @@ function rightSrc(frame: BlinkFrame): string {
   return frame.leftSrc
 }
 
-/** Estilo vivo: saturación + contraste en ambas fotos. */
+/** Estilo vivo: saturación + contraste en ambas fotos, solo si el usuario los activa. */
 const duoSatStyle = computed(() => ({
-  '--blink-sat': `${saturation.value}%`,
-  '--blink-contrast': `${contrast.value}%`,
+  '--blink-filter': filtersOn.value
+    ? `saturate(${saturation.value}%) contrast(${contrast.value}%)`
+    : 'none',
 }))
+
+function toggleFilters() {
+  filtersOn.value = !filtersOn.value
+}
 
 const sourceSwitchDisabled = computed(
   () => phase.value === 'meta' || phase.value === 'images' || reloading.value,
@@ -630,6 +651,8 @@ const controlGuide = computed(() => {
     epochsPick: spherex
       ? 'Esto elige qué visita SPHEREx estás viendo (1, 2, 3…). No es la velocidad del blink.'
       : `Esto elige qué época WISE estás viendo (1 de ${n || 8}…). No es la velocidad del blink.`,
+    filters:
+      'Filtros: apagados, ves la foto tal cual llega. Actívalos para usar Saturación y Contraste; desactívalos para volver a la original.',
     saturation:
       'Saturación: intensidad del color. Más bajo = más gris; más alto = naranjas/rojos IR más vivos. Sirve igual en SPHEREx y WISE.',
     contrast:
@@ -950,7 +973,18 @@ onBeforeUnmount(() => {
         </div>
       </div>
 
-      <div class="player__tune">
+      <div class="player__tune" :class="{ 'is-off': !filtersOn }">
+        <button
+          type="button"
+          class="player__filters"
+          :class="{ 'is-on': filtersOn }"
+          :aria-pressed="filtersOn"
+          :title="controlGuide.filters"
+          @click="toggleFilters"
+        >
+          Filtros: {{ filtersOn ? 'activados' : 'desactivados' }}
+        </button>
+
         <label class="player__sat" :title="controlGuide.saturation">
           <span>Saturación</span>
           <input
@@ -959,6 +993,7 @@ onBeforeUnmount(() => {
             min="40"
             max="220"
             step="5"
+            :disabled="!filtersOn"
             :aria-valuenow="saturation"
           />
           <em>{{ saturation }}%</em>
@@ -972,6 +1007,7 @@ onBeforeUnmount(() => {
             min="70"
             max="180"
             step="5"
+            :disabled="!filtersOn"
             :aria-valuenow="contrast"
           />
           <em>{{ contrast }}%</em>
@@ -1124,16 +1160,42 @@ onBeforeUnmount(() => {
             </div>
             <p v-if="showControlHelp" class="enlarge-modal__tip">{{ controlGuide.ms }}</p>
 
-            <label class="enlarge-modal__slider">
+            <button
+              type="button"
+              class="player__filters"
+              :class="{ 'is-on': filtersOn }"
+              :aria-pressed="filtersOn"
+              :title="controlGuide.filters"
+              @click="toggleFilters"
+            >
+              Filtros: {{ filtersOn ? 'activados' : 'desactivados' }}
+            </button>
+            <p v-if="showControlHelp" class="enlarge-modal__tip">{{ controlGuide.filters }}</p>
+
+            <label class="enlarge-modal__slider" :class="{ 'is-off': !filtersOn }">
               <span>Saturación</span>
-              <input v-model.number="saturation" type="range" min="40" max="220" step="5" />
+              <input
+                v-model.number="saturation"
+                type="range"
+                min="40"
+                max="220"
+                step="5"
+                :disabled="!filtersOn"
+              />
               <em>{{ saturation }}%</em>
             </label>
             <p v-if="showControlHelp" class="enlarge-modal__tip">{{ controlGuide.saturation }}</p>
 
-            <label class="enlarge-modal__slider">
+            <label class="enlarge-modal__slider" :class="{ 'is-off': !filtersOn }">
               <span>Contraste</span>
-              <input v-model.number="contrast" type="range" min="70" max="180" step="5" />
+              <input
+                v-model.number="contrast"
+                type="range"
+                min="70"
+                max="180"
+                step="5"
+                :disabled="!filtersOn"
+              />
               <em>{{ contrast }}%</em>
             </label>
             <p v-if="showControlHelp" class="enlarge-modal__tip">{{ controlGuide.contrast }}</p>
@@ -1202,6 +1264,7 @@ onBeforeUnmount(() => {
             <section class="pace-modal__card">
               <h3>Controles de imagen (SPHEREx y WISE)</h3>
               <ul>
+                <li><strong>Filtros:</strong> {{ controlGuide.filters }}</li>
                 <li><strong>Saturación:</strong> {{ controlGuide.saturation }}</li>
                 <li><strong>Contraste:</strong> {{ controlGuide.contrast }}</li>
                 <li><strong>Zoom / Ver en grande:</strong> {{ controlGuide.zoom }}</li>
@@ -2042,7 +2105,8 @@ onBeforeUnmount(() => {
   object-fit: contain;
   object-position: center;
   transition: transform 0.12s ease-out;
-  filter: saturate(var(--blink-sat, 125%)) contrast(var(--blink-contrast, 105%));
+  /* Sin filtro salvo que el usuario active "Filtros" (--blink-filter en el panel). */
+  filter: var(--blink-filter, none);
 }
 
 .enlarge-modal__frame figcaption {
@@ -2170,8 +2234,8 @@ onBeforeUnmount(() => {
   pointer-events: none;
   transition: transform 0.12s ease-out;
   will-change: transform;
-  /* Saturación del slider (--blink-sat en .player__duo). */
-  filter: saturate(var(--blink-sat, 125%)) contrast(var(--blink-contrast, 105%));
+  /* Sin filtro salvo que el usuario active "Filtros" (--blink-filter en .player__duo). */
+  filter: var(--blink-filter, none);
 }
 
 .player__tune {
@@ -2180,6 +2244,30 @@ onBeforeUnmount(() => {
   gap: 0.25rem;
   margin-top: 0.2rem;
   flex: none;
+}
+
+.player__filters {
+  align-self: flex-start;
+  border: 1px solid rgba(255, 255, 255, 0.28);
+  background: rgba(255, 255, 255, 0.05);
+  color: rgba(255, 255, 255, 0.8);
+  padding: 0.35rem 0.6rem;
+  font-size: 0.72rem;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  border-radius: 0.3rem;
+  cursor: pointer;
+}
+
+.player__filters.is-on {
+  border-color: rgba(232, 196, 120, 0.7);
+  background: rgba(232, 196, 120, 0.16);
+  color: #ffe9b8;
+}
+
+.player__tune.is-off .player__sat,
+.enlarge-modal__slider.is-off {
+  opacity: 0.45;
 }
 
 .player__frame--sat img {
