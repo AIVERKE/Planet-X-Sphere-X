@@ -27,3 +27,30 @@ class GroupedObservationsResponse(BaseModel):
     query: ObservationQuery
     count: int
     bands: dict[str, list[dict[str, Any]]]
+
+
+class FramesQuery(ObservationQuery):
+    band: str = Field(description="Detector code, e.g. D1")
+
+
+class FrameRecord(BaseModel):
+    """One SPHEREx epoch, already ordered, with a browser-ready PNG URL."""
+
+    obs_id: str
+    t_min: float
+    t_max: float | None = None
+    band: str
+    png_url: str
+
+
+class FramesResponse(BaseModel):
+    """Epochs of a single detector, sharing one brightness scale."""
+
+    query: FramesQuery
+    band: str
+    available_bands: list[str]
+    matched: int
+    returned: int
+    vmin: float
+    vmax: float
+    frames: list[FrameRecord]

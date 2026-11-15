@@ -8,3 +8,7 @@ astroquery>=0.4.10
 pyvo>=1.5
 requests>=2.31,<3.0
 pandas>=2.2,<3.0
+truststore>=0.10,<1.0
+pillow>=10.4,<14
+reproject>=0.14
+
