@@ -8,7 +8,7 @@ from schemas.observations import (
     ObservationQuery,
     ObservationsResponse,
 )
-from services import irsa_sia, spherex_cutouts
+from services import irsa_sia, offline_spherex, spherex_cutouts
 
 router = APIRouter(prefix="/observations", tags=["observations"])
 
@@ -31,7 +31,16 @@ def _load_records(
     try:
         table = irsa_sia.query_images(ra, dec, radius, collection)
     except irsa_sia.UpstreamServiceError as exc:
-        raise HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail=str(exc)) from exc
+        cached = offline_spherex.barnard_observations(
+            ra, dec, radius, t_start, t_end, collection, cutout_size
+        )
+        if cached is not None:
+            query_dict, records = cached
+            return ObservationQuery(**query_dict), records
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="IRSA SIA query failed: servicio no disponible",
+        ) from exc
 
     if table is None or len(table) == 0:
         raise HTTPException(
@@ -104,6 +113,24 @@ def get_frames(
 ) -> FramesResponse:
     """Epochs of one detector, ordered by t_min, each pointing at a PNG."""
     query, records = _load_records(ra, dec, radius, t_start, t_end, collection, cutout_size)
+
+    # Si IRSA falló y usamos el JSON local de Barnard, devolvemos esos PNG listos.
+    if records and records[0].get("offline"):
+        offline = offline_spherex.barnard_frames_response(
+            ra, dec, radius, t_start, t_end, collection, cutout_size, band
+        )
+        if offline is not None:
+            return FramesResponse(
+                query=FramesQuery(**offline["query"]),
+                band=str(offline["band"]),
+                available_bands=list(offline["available_bands"]),
+                matched=int(offline["matched"]),
+                returned=int(offline["returned"]),
+                vmin=offline.get("vmin"),
+                vmax=offline.get("vmax"),
+                frames=[FrameRecord(**frame) for frame in offline["frames"]],
+            )
+
     try:
         chosen, available, selected = spherex_cutouts.select_band(records, band)
     except spherex_cutouts.UnknownBand as exc:

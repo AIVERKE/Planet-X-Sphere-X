@@ -30,11 +30,13 @@ import {
   type MissionTourStepId,
 } from '@/composables/useMissionOnboarding'
 import { useI18n } from '@/composables/useI18n'
+import { resolveMissionOnboarding } from '@/data/missionOnboardingCopy'
 import {
   fetchPanstarrsStamps,
   panstarrsPortalUrl,
 } from '@/services/panstarrs'
 import SharpPhotoLayer from '@/components/mission/SharpPhotoLayer.vue'
+import CutoutPulseOverlay from '@/components/mission/CutoutPulseOverlay.vue'
 import {
   fetchUnwiseEpochStamps,
   wiseviewPortalUrl,
@@ -171,13 +173,6 @@ const {
 
 const isEmbed = computed(() => readFromQuery(route.query).state.embed)
 const { m: i18nMessages } = useI18n()
-const onboardingCopy = computed(() => i18nMessages.value.mission.onboarding)
-const tourStepCopy = computed(() => onboardingCopy.value.steps[onboardingStepId.value])
-const tourProgressLabel = computed(() =>
-  onboardingCopy.value.progress
-    .replace('{current}', String(onboardingStepIndex.value + 1))
-    .replace('{total}', String(onboardingStepCount)),
-)
 
 async function prepareOnboardingStep(id: MissionTourStepId) {
   searchOpen.value = false
@@ -212,7 +207,7 @@ async function prepareOnboardingStep(id: MissionTourStepId) {
     spherexFloatOpen.value = false
     return
   }
-  // interpret — float a la derecha; la tarjeta del tour se coloca al lado.
+  // interpret — blink en tarjeta flotante; el atlas no se parte.
   catalogOpen.value = false
   drawerOpen.value = false
   sideTab.value = 'stamps'
@@ -242,6 +237,20 @@ const {
   prepareStep: prepareOnboardingStep,
 })
 
+/** Después del composable: el tour ya existe. Nunca undefined en el render. */
+const onboardingCopy = computed(() =>
+  resolveMissionOnboarding(i18nMessages.value?.mission?.onboarding),
+)
+const tourStepCopy = computed(() => {
+  const steps = onboardingCopy.value.steps
+  return steps[onboardingStepId.value] ?? steps.atlas
+})
+const tourProgressLabel = computed(() =>
+  onboardingCopy.value.progress
+    .replace('{current}', String(onboardingStepIndex.value + 1))
+    .replace('{total}', String(onboardingStepCount)),
+)
+
 const urlNotice = ref<string | null>(null)
 const shareOpen = ref(false)
 const copyFeedback = ref<CopyFeedback | null>(null)
@@ -258,8 +267,33 @@ let journeyToken = 0
 let stampLoadToken = 0
 let obsLoadToken = 0
 let captureSyncToken = 0
+/** Tras un 503 de IRSA, no martillar /api/observations en cada pan. */
+let obsOutageUntil = 0
 /** true mientras se aplica una vista llegada por URL: no se re-escribe la URL. */
 let syncingFromUrl = false
+
+function isIrsaObsOutage(error: unknown): boolean {
+  const msg = error instanceof Error ? error.message : String(error)
+  return (
+    msg.includes('HTTP 503') ||
+    msg.includes('HTTP 502') ||
+    msg.includes('HTTP 504') ||
+    msg.includes('Tiempo agotado') ||
+    msg.includes('Failed to fetch') ||
+    msg.includes('NetworkError') ||
+    msg.includes('IRSA')
+  )
+}
+
+function friendlyObsError(error: unknown): string {
+  if (isIrsaObsOutage(error)) {
+    return 'IRSA no responde ahora (proxy/SIA). El atlas sigue; prueba el blink o reintenta en un momento.'
+  }
+  if (error instanceof Error && error.message.includes('HTTP 404')) {
+    return 'No hay capturas SPHEREx cerca de este punto.'
+  }
+  return 'No se pudieron cargar las observaciones SPHEREx.'
+}
 
 const obsPreview = computed(() => (obsResult.value?.observations ?? []).slice(0, 5))
 const activeStamp = computed(() => stamps.value[blinkIndex.value] ?? stamps.value[0] ?? null)
@@ -743,6 +777,27 @@ async function animateFoV(from: number, to: number, ms = 1100, token = journeyTo
 const playerRa = computed(() => stampRa.value ?? parseCoord(raInput.value, 'ra'))
 const playerDec = computed(() => stampDec.value ?? parseCoord(decInput.value, 'dec'))
 
+/** Lado del recorte en el atlas: SPHEREx 0.08°; WISE ~280 px × 2.75″. */
+const footprintSizeDeg = computed(() =>
+  motionMode.value === 'wise' ? (280 * 2.75) / 3600 : CUTOUT_SIZE_DEG,
+)
+
+const footprintLabel = computed(() => {
+  if (motionMode.value === 'wise') return 'Recorte WISE'
+  if (spherexFloatOpen.value) return 'Recorte blink'
+  return 'Recorte SPHEREx'
+})
+
+const footprintVisible = computed(
+  () =>
+    status.value === 'ready' &&
+    !isEmbed.value &&
+    playerRa.value != null &&
+    playerDec.value != null &&
+    Number.isFinite(Number(liveRa.value)) &&
+    Number.isFinite(Number(liveDec.value)),
+)
+
 function goToCoords() {
   const aladin = aladinRef.value
   if (!aladin) {
@@ -853,37 +908,41 @@ async function pingBackend() {
   }
 }
 
-async function loadObservationsAt(ra: number, dec: number, radius = 90) {
+async function loadObservationsAt(ra: number, dec: number, radius = 90, force = false) {
   const token = ++obsLoadToken
+  if (!force && Date.now() < obsOutageUntil) {
+    obsLoading.value = false
+    if (!obsError.value) {
+      obsError.value = 'IRSA sigue saturado · espera un momento o abre el blink.'
+    }
+    return
+  }
+
   obsLoading.value = true
   obsError.value = null
-  let lastError: unknown = null
-  for (let attempt = 1; attempt <= 3; attempt++) {
+  try {
+    const result = await fetchObservations({
+      ra,
+      dec,
+      radius,
+      collection: 'spherex_dr1',
+      cutout_size: CUTOUT_SIZE_DEG,
+    })
     if (token !== obsLoadToken) return
-    try {
-      const result = await fetchObservations({
-        ra,
-        dec,
-        radius,
-        collection: 'spherex_dr1',
-        cutout_size: CUTOUT_SIZE_DEG,
-      })
-      if (token !== obsLoadToken) return
-      obsResult.value = result
-      obsLoading.value = false
-      return
-    } catch (error) {
-      lastError = error
-      if (attempt < 3) await sleep(900 * attempt)
+    obsResult.value = result
+    obsError.value = null
+    obsOutageUntil = 0
+    obsLoading.value = false
+  } catch (error) {
+    if (token !== obsLoadToken) return
+    if (isIrsaObsOutage(error)) {
+      // Evita ráfagas 503 en consola al panear / HMR.
+      obsOutageUntil = Date.now() + 45_000
     }
+    obsError.value = friendlyObsError(error)
+    obsResult.value = null
+    obsLoading.value = false
   }
-  if (token !== obsLoadToken) return
-  obsError.value =
-    lastError instanceof Error
-      ? `${lastError.message} · IRSA a veces satura; reintenta.`
-      : 'No se pudieron cargar observaciones'
-  obsResult.value = null
-  obsLoading.value = false
 }
 
 async function loadObservations() {
@@ -903,9 +962,13 @@ async function loadObservations() {
   motionRadius.value = OBS_RADIUS_ARCSEC
   stampRa.value = ra
   stampDec.value = dec
-  const jobs: Promise<unknown>[] = [loadObservationsAt(ra, dec, OBS_RADIUS_ARCSEC)]
+  const jobs: Promise<unknown>[] = [loadObservationsAt(ra, dec, OBS_RADIUS_ARCSEC, true)]
   if (motionMode.value === 'wise') jobs.push(loadStampsAt(ra, dec))
   await Promise.all(jobs)
+}
+
+function retryObservations() {
+  void loadObservations()
 }
 
 async function loadStampsAt(ra: number, dec: number, mode: StampMode = stampMode.value) {
@@ -996,6 +1059,8 @@ function openSpherexFloat() {
   stopBlink()
   drawerOpen.value = false
   detailOpen.value = false
+  // El blink es tarjeta flotante: no parte el atlas; cerramos Objetivos para no tapar el cielo.
+  catalogOpen.value = false
   spherexFloatOpen.value = true
   spherexFloatTick.value += 1
 }
@@ -1367,7 +1432,7 @@ onUnmounted(() => {
 </script>
 
 <template>
-  <div class="sky" :class="{ 'sky--embed': isEmbed, 'sky--split': spherexFloatOpen && !isEmbed }">
+  <div class="sky" :class="{ 'sky--embed': isEmbed }">
     <div ref="host" class="sky__canvas" aria-label="Atlas Aladin Lite" />
     <SharpPhotoLayer
       v-if="status === 'ready' && !isEmbed"
@@ -1376,6 +1441,18 @@ onUnmounted(() => {
       :fov-deg="Number(fovInput) || 2"
       :aspect="skyAspect"
       :enabled="stage !== 'flying'"
+    />
+    <CutoutPulseOverlay
+      v-if="footprintVisible && playerRa != null && playerDec != null"
+      :ra="playerRa"
+      :dec="playerDec"
+      :size-deg="footprintSizeDeg"
+      :center-ra="Number(liveRa)"
+      :center-dec="Number(liveDec)"
+      :fov-deg="Number(fovInput) || 2"
+      :aspect="skyAspect"
+      :label="footprintLabel"
+      :emphasized="spherexFloatOpen"
     />
     <!-- HUD: una sola franja superior, sin FABs sueltos que choquen -->
     <header v-if="!isEmbed" class="sky__top">
@@ -1426,10 +1503,10 @@ onUnmounted(() => {
           type="button"
           class="btn"
           :class="{ 'btn--on': guideOpen || tourActive }"
-          :title="onboardingCopy.openGuide"
+          :title="onboardingCopy.openGuide || 'Guía'"
           @click="toggleGuide"
         >
-          {{ onboardingCopy.openGuide }}
+          {{ onboardingCopy.openGuide || 'Guía' }}
         </button>
         <button
           type="button"
@@ -1599,10 +1676,15 @@ onUnmounted(() => {
         <p v-if="obsLoading" class="info-meta">Consultando IRSA…</p>
         <div v-else-if="obsError" class="info-err">
           <p>{{ obsError }}</p>
-          <button type="button" class="btn btn--gold" @click="loadObservations">Reintentar</button>
+          <p class="info-err-hint">No es un fallo del atlas: el archivo SPHEREx (IRSA) está caído o lento.</p>
+          <div class="info-err-actions">
+            <button type="button" class="btn btn--gold" @click="retryObservations">Reintentar</button>
+            <button type="button" class="btn btn--ghost" @click="openStampsTab">Abrir blink</button>
+          </div>
         </div>
         <p v-else-if="obsResult" class="info-meta">
           {{ obsResult.count }} imágenes SPHEREx cerca
+          <template v-if="obsResult.observations?.[0]?.offline"> · respaldo local</template>
         </p>
 
         <ul v-if="obsPreview.length" class="obs">
@@ -1684,7 +1766,7 @@ onUnmounted(() => {
               Cerrar
             </button>
           </div>
-          <p v-if="spherexFloatOpen" class="motion-status">Ventana abierta · arrástrala sobre el cielo</p>
+          <p v-if="spherexFloatOpen" class="motion-status">Blink flotante · el atlas sigue completo</p>
         </template>
 
         <template v-else>
@@ -1895,19 +1977,6 @@ onUnmounted(() => {
 .sky__canvas {
   position: absolute;
   inset: 0;
-}
-
-.sky--split .sky__canvas,
-.sky--split :deep(.sharp) {
-  right: 50%;
-}
-
-@media (max-width: 800px) {
-  .sky--split .sky__canvas,
-  .sky--split :deep(.sharp) {
-    right: 0;
-    bottom: 50%;
-  }
 }
 
 .sky__canvas :deep(.aladin-container),
@@ -2413,6 +2482,22 @@ onUnmounted(() => {
   font-size: 0.95rem;
   display: grid;
   gap: 0.6rem;
+}
+
+.info-err p {
+  margin: 0;
+}
+
+.info-err-hint {
+  color: rgba(255, 255, 255, 0.7);
+  font-size: 0.82rem;
+  line-height: 1.4;
+}
+
+.info-err-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.45rem;
 }
 
 .info-more {
