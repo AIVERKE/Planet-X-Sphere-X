@@ -118,10 +118,31 @@ export interface Messages {
     lead: string
     back: string
     close: string
+    onboarding: string
+    onboardingDismiss: string
     far: string
     identify: string
+    identifyHint: string
+    /** `{n}` marcadas de `{total}`. */
+    identifyProgress: string
     traps: string
-    rows: Record<'sky' | 'yard', string>
+    compare: string
+    compareGroup: string
+    compareModel: string
+    comparePhoto: string
+    credit: string
+    license: string
+    imageAdapted: string
+    imageSource: string
+    search: string
+    example: string
+    /** `{name}`: nombre del ejemplo. */
+    ctaFixed: string
+    /** `{name}`: cuerpo; `{date}`: fecha del cálculo. */
+    ctaEphemeris: string
+    ephemerisNote: string
+    rows: Record<'sky', string>
+    /** aria-label del canvas 3D de cada forma. */
     orb: Record<'nebula' | 'ring' | 'galaxy' | 'jupiter', string>
   }
   routes: {
