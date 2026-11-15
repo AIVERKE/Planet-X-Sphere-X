@@ -1,7 +1,9 @@
 /**
- * Agranda y suaviza un JPEG (WISE / foto fija) para el panel HD.
- * No inventa detalle: solo evita el aspecto a bloques.
+ * Render HD del sistema (panel derecho).
+ * Misma época que el satélite, pero más grande, con color y más nítida.
+ * No convierte a gris ni difumina de más: eso hacía que se viera peor que la izquierda.
  */
+
 export async function enhanceJpegToHd(
   src: string,
   {
@@ -10,46 +12,80 @@ export async function enhanceJpegToHd(
     scale?: number
   } = {},
 ): Promise<string> {
-  const image = await loadImage(src)
-  const width = Math.max(1, Math.round(image.naturalWidth * scale))
-  const height = Math.max(1, Math.round(image.naturalHeight * scale))
-  const canvas = document.createElement('canvas')
-  canvas.width = width
-  canvas.height = height
-  const ctx = canvas.getContext('2d', { alpha: false })
-  if (!ctx) throw new Error('No canvas')
+  const { image, revoke } = await loadImageSafe(src)
+  try {
+    const width = Math.max(1, Math.round(image.naturalWidth * scale))
+    const height = Math.max(1, Math.round(image.naturalHeight * scale))
+    const canvas = document.createElement('canvas')
+    canvas.width = width
+    canvas.height = height
+    const ctx = canvas.getContext('2d', { alpha: false })
+    if (!ctx) throw new Error('No canvas')
 
-  ctx.imageSmoothingEnabled = true
-  ctx.imageSmoothingQuality = 'high'
-  ctx.drawImage(image, 0, 0, width, height)
+    ctx.fillStyle = '#000'
+    ctx.fillRect(0, 0, width, height)
+    ctx.imageSmoothingEnabled = true
+    ctx.imageSmoothingQuality = 'high'
+    ctx.drawImage(image, 0, 0, width, height)
 
-  // Un toque de contraste suave: el IR plano se lee mejor.
-  const shot = ctx.getImageData(0, 0, width, height)
-  const data = shot.data
-  for (let i = 0; i < data.length; i += 4) {
-    data[i] = lift(data[i]!)
-    data[i + 1] = lift(data[i + 1]!)
-    data[i + 2] = lift(data[i + 2]!)
+    // Solo el panel derecho: suaviza el píxel del satélite sin tocar la foto cruda.
+    const softCanvas = document.createElement('canvas')
+    softCanvas.width = width
+    softCanvas.height = height
+    const sctx = softCanvas.getContext('2d', { alpha: false })
+    if (!sctx) throw new Error('No soft canvas')
+    sctx.filter = 'blur(1.15px)'
+    sctx.drawImage(canvas, 0, 0)
+    sctx.filter = 'none'
+
+    ctx.globalAlpha = 0.35
+    ctx.drawImage(canvas, 0, 0)
+    ctx.globalAlpha = 0.65
+    ctx.drawImage(softCanvas, 0, 0)
+    ctx.globalAlpha = 1
+
+    const shot = ctx.getImageData(0, 0, width, height)
+    const data = shot.data
+    for (let i = 0; i < data.length; i += 4) {
+      data[i] = clamp((data[i]! - 8) * 1.08 + 8)
+      data[i + 1] = clamp((data[i + 1]! - 8) * 1.08 + 8)
+      data[i + 2] = clamp((data[i + 2]! - 8) * 1.08 + 8)
+    }
+    ctx.putImageData(shot, 0, 0)
+
+    return await canvasToUrl(canvas)
+  } finally {
+    revoke()
   }
-  ctx.putImageData(shot, 0, 0)
-
-  return await canvasToUrl(canvas)
 }
 
-function lift(value: number): number {
-  const n = value / 255
-  const curved = Math.pow(n, 0.92)
-  return Math.max(0, Math.min(255, Math.round(curved * 255)))
+function clamp(value: number): number {
+  return Math.max(0, Math.min(255, Math.round(value)))
 }
 
-function loadImage(src: string): Promise<HTMLImageElement> {
-  return new Promise((resolve, reject) => {
-    const image = new Image()
-    image.crossOrigin = 'anonymous'
-    image.onload = () => resolve(image)
-    image.onerror = () => reject(new Error('No se pudo mejorar la imagen'))
-    image.src = src
-  })
+async function loadImageSafe(src: string): Promise<{ image: HTMLImageElement; revoke: () => void }> {
+  const response = await fetch(src, { mode: 'cors', credentials: 'omit' })
+  if (!response.ok) throw new Error(`HD fetch HTTP ${response.status}`)
+  const blob = await response.blob()
+  if (!blob.type.startsWith('image/') && blob.size < 64) {
+    throw new Error('HD: respuesta no imagen')
+  }
+  const objectUrl = URL.createObjectURL(blob)
+  try {
+    const image = await new Promise<HTMLImageElement>((resolve, reject) => {
+      const img = new Image()
+      img.onload = () => resolve(img)
+      img.onerror = () => reject(new Error('No se pudo decodificar la imagen HD'))
+      img.src = objectUrl
+    })
+    return {
+      image,
+      revoke: () => URL.revokeObjectURL(objectUrl),
+    }
+  } catch (error) {
+    URL.revokeObjectURL(objectUrl)
+    throw error
+  }
 }
 
 function canvasToUrl(canvas: HTMLCanvasElement): Promise<string> {
@@ -63,7 +99,7 @@ function canvasToUrl(canvas: HTMLCanvasElement): Promise<string> {
         resolve(URL.createObjectURL(blob))
       },
       'image/jpeg',
-      0.92,
+      0.94,
     )
   })
 }

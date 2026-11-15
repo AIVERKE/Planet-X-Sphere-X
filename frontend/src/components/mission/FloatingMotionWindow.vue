@@ -76,8 +76,10 @@ onUnmounted(() => window.removeEventListener('keydown', onKey))
   bottom: 4.35rem;
   top: auto;
   left: auto;
-  z-index: 6;
-  width: min(48rem, calc(100vw - 1.2rem));
+  z-index: 5;
+  /* Derecha: fotos satélite. Izquierda libre para el recorte del cielo. */
+  width: min(36rem, 46vw);
+  max-width: calc(100vw - 13.5rem);
   height: min(88vh, 54rem);
   max-height: calc(100vh - 8.6rem);
   display: flex;
@@ -165,13 +167,21 @@ onUnmounted(() => window.removeEventListener('keydown', onKey))
   }
 }
 
-@media (max-width: 800px) {
+@media (max-width: 900px) {
+  .float {
+    width: min(32rem, 52vw);
+    max-width: calc(100vw - 10rem);
+  }
+}
+
+@media (max-width: 640px) {
   .float {
     right: 0.5rem;
     left: 0.5rem;
     width: auto;
+    max-width: none;
     bottom: 4.2rem;
-    height: min(62vh, 34rem);
+    height: min(52vh, 28rem);
   }
 }
 </style>
