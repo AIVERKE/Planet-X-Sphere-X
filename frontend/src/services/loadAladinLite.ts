@@ -74,6 +74,57 @@ export function presetSurvey(category: string, esaReachable: boolean): LocalHips
   return 'esa-dss'
 }
 
+/** Espera a ESA (preferido) antes de pasar a IRSA. */
+export const HIPS_PREFER_TIMEOUT_MS = 8_000
+/** IRSA es el último recurso y a veces tarda ~10 s: si falla, no hay cielo. */
+export const HIPS_FALLBACK_TIMEOUT_MS = 20_000
+/** Tiempo que se recuerda un ESA caído para no esperar su timeout en cada visita. */
+export const HIPS_DOWN_TTL_MS = 5 * 60_000
+
+export type HipsProbe = (url: string, timeoutMs: number) => Promise<boolean>
+
+/** ¿Responde el HiPS (`properties`) antes de `timeoutMs`? */
+export const probeHips: HipsProbe = async (url, timeoutMs) => {
+  try {
+    const response = await fetch(`${url}/properties`, {
+      cache: 'no-store',
+      signal: AbortSignal.timeout(timeoutMs),
+    })
+    return response.ok
+  } catch {
+    return false
+  }
+}
+
+let esaDownAt: number | null = null
+
+/** Olvida que ESA estaba caído (tests). */
+export function forgetHipsHealth() {
+  esaDownAt = null
+}
+
+/**
+ * Mapa base del arranque. Prueba ESA e IRSA a la vez: ESA gana si responde a tiempo y,
+ * si no, se usa IRSA, que ya lleva un rato cargando y tiene más margen. Un ESA caído se
+ * recuerda unos minutos para que la siguiente visita vaya directa a IRSA.
+ * Devuelve `null` si ninguno responde.
+ */
+export async function pickStartHips(
+  probe: HipsProbe = probeHips,
+  now: () => number = Date.now,
+): Promise<LocalHipsId | null> {
+  const fallback = probe(LOCAL_HIPS['dss2-color'].url, HIPS_FALLBACK_TIMEOUT_MS)
+  const esaKnownDown = esaDownAt != null && now() - esaDownAt < HIPS_DOWN_TTL_MS
+  if (!esaKnownDown) {
+    if (await probe(LOCAL_HIPS['esa-dss'].url, HIPS_PREFER_TIMEOUT_MS)) {
+      esaDownAt = null
+      return 'esa-dss'
+    }
+    esaDownAt = now()
+  }
+  return (await fallback) ? 'dss2-color' : null
+}
+
 let pending: Promise<AladinAPI> | null = null
 let networkPatched = false
 
