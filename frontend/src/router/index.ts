@@ -12,6 +12,8 @@ const router = createRouter({
     },
     {
       path: '/mision',
+      // Alias en inglés: las URLs compartidas / embebidas pueden usar /mission?ra=&dec=&fov=
+      alias: '/mission',
       name: 'mission',
       component: () => import('@/views/MissionView.vue'),
       meta: { titleKey: 'mission' as const },
