@@ -61,6 +61,8 @@ export function createEarthToSpaceRig() {
     if (!earthData) return
 
     const earth = createEarthGlobe(earthData)
+    // ~30 % de vuelta: evita empezar de cara al océano vacío.
+    earth.group.rotation.y = Math.PI * 2 * 0.3
     earth.group.visible = false
     scene.add(earth.group)
     planetGroups.set(earthData.id, earth.group)

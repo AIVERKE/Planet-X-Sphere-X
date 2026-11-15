@@ -8,12 +8,14 @@ import ChapterMarker from '@/components/explorer/ChapterMarker.vue'
 import EditorialCopy from '@/components/explorer/EditorialCopy.vue'
 import PlanetExplorerHUD from '@/components/explorer/PlanetExplorerHUD.vue'
 import SpherexMissionSection from '@/components/explorer/SpherexMissionSection.vue'
+import { useExplorerMusic } from '@/composables/useExplorerMusic'
 import { useI18n } from '@/composables/useI18n'
 import { useSpaceStore } from '@/stores/useSpaceStore'
 import '@/styles/explorer.css'
 
 const store = useSpaceStore()
 const { m } = useI18n()
+useExplorerMusic()
 
 if (typeof document !== 'undefined') {
   document.documentElement.classList.add('is-explorer')
