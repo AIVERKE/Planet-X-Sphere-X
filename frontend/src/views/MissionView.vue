@@ -17,12 +17,16 @@ import {
   fetchObservations,
   type ObservationsResponse,
 } from '@/services/http'
-import SpherexPlayer from '@/components/mission/SpherexPlayer.vue'
+import FloatingMotionWindow from '@/components/mission/FloatingMotionWindow.vue'
+import SpherexDetailWindow, {
+  type DetailObs,
+} from '@/components/mission/SpherexDetailWindow.vue'
 import { useFramePlayer } from '@/composables/useFramePlayer'
 import {
   fetchPanstarrsStamps,
   panstarrsPortalUrl,
 } from '@/services/panstarrs'
+import SharpPhotoLayer from '@/components/mission/SharpPhotoLayer.vue'
 import {
   fetchUnwiseEpochStamps,
   wiseviewPortalUrl,
@@ -43,6 +47,8 @@ import {
 import {
   FOV_MAX,
   FOV_MIN,
+  FOV_NEBULA,
+  FOV_SOFT_LIMIT,
   describeInvalidQuery,
   readFromQuery,
   useSkyUrlState,
@@ -93,6 +99,7 @@ const SURVEYS = (Object.keys(LOCAL_HIPS) as LocalHipsId[]).map((id) => ({
 }))
 
 const surveyId = ref<LocalHipsId>('esa-dss')
+const skyAspect = ref(1.6)
 const aladinApi = shallowRef<AladinAPI | null>(null)
 const skyHint = ref('Preparando atlas…')
 const backendOk = ref<boolean | null>(null)
@@ -112,6 +119,15 @@ const stageHint = ref('Elige una nebulosa · el cielo es el protagonista')
 const catalogOpen = ref(true)
 const drawerOpen = ref(true)
 const sideTab = ref<SideTab>('info')
+/** Reproductor SPHEREx en ventana flotante (no embebido abajo a la derecha). */
+const spherexFloatOpen = ref(false)
+const spherexFloatTick = ref(0)
+/** Visor 2D real + metadatos ObsCore. */
+const detailOpen = ref(false)
+const detailTick = ref(0)
+const detailObs = ref<DetailObs | null>(null)
+/** True cuando el atlas óptico ya no puede afilar más (límite DSS). */
+const atlasAtLimit = ref(false)
 const searchOpen = ref(false)
 const searchError = ref<string | null>(null)
 
@@ -217,10 +233,14 @@ function presetLookup(id: string | null | undefined): PresetLocation | null {
   return presetById(id, presets.value) ?? presetById(id) ?? null
 }
 
-/** FOV del atlas para un preset (DSS no baja bien de ~0.35°). */
+/** FOV del atlas para un preset (DSS no baja de FOV_MIN). */
 function presetFov(preset: PresetLocation | null): number {
-  if (!preset) return 0.55
-  return Math.min(FOV_MAX, Math.max(FOV_MIN, Math.max(preset.fov_deg, 0.35)))
+  if (!preset) return FOV_NEBULA
+  // Campos / nebulosas: FOV amplio para que el HiPS se vea “real”, no a bloques.
+  if (preset.category === 'survey_field') {
+    return Math.min(FOV_MAX, Math.max(FOV_NEBULA, preset.fov_deg || FOV_NEBULA))
+  }
+  return Math.min(FOV_MAX, Math.max(FOV_MIN, Math.max(preset.fov_deg, FOV_MIN)))
 }
 
 /**
@@ -284,12 +304,20 @@ async function waitForHostSize(el: HTMLElement, tries = 20): Promise<boolean> {
   return false
 }
 
+let bootLock = false
+
 async function boot() {
-  if (!host.value) return
+  if (!host.value || bootLock) return
+  bootLock = true
   status.value = 'loading'
   errorMessage.value = ''
   skyHint.value = 'Preparando atlas…'
   patchAladinNetwork()
+  const slow = window.setTimeout(() => {
+    if (status.value === 'loading') {
+      skyHint.value = 'El atlas está tardando…'
+    }
+  }, 8000)
 
   try {
     await nextTick()
@@ -301,8 +329,6 @@ async function boot() {
     if (!host.value) return
 
     host.value.innerHTML = ''
-    surveyId.value = 'esa-dss'
-    const hipsUrl = LOCAL_HIPS['esa-dss'].url
     const parsed = readFromQuery(route.query)
     const start = resolveStartView(parsed.state)
     const target = `${start.ra} ${start.dec}`
@@ -313,11 +339,26 @@ async function boot() {
     fovInput.value = roundFov(startFov)
     showUrlNotice(describeInvalidQuery(parsed))
 
-    // Comprobar que el proxy HiPS responde antes de pintar.
+    // ESA a veces no contesta. IRSA DSS sí, y el cielo puede abrir igual.
     skyHint.value = 'Comprobando tiles…'
-    const probe = await fetch(`${hipsUrl}/properties`, { cache: 'no-store' })
-    if (!probe.ok) {
-      throw new Error(`Proxy HiPS no responde (${probe.status}). Reinicia npm run dev.`)
+    const hipsOrder: LocalHipsId[] = ['esa-dss', 'dss2-color']
+    let hipsUrl = ''
+    for (const id of hipsOrder) {
+      try {
+        const probe = await fetch(`${LOCAL_HIPS[id].url}/properties`, {
+          cache: 'no-store',
+          signal: AbortSignal.timeout(8000),
+        })
+        if (!probe.ok) continue
+        surveyId.value = id
+        hipsUrl = LOCAL_HIPS[id].url
+        break
+      } catch {
+        /* timeout o red: prueba el siguiente mapa */
+      }
+    }
+    if (!hipsUrl) {
+      throw new Error('El mapa del cielo no respondió. Pulsa Reintentar.')
     }
 
     const aladin = A.aladin(host.value, {
@@ -346,7 +387,7 @@ async function boot() {
       backgroundColor: 'rgb(0,0,0)',
     })
 
-    applyLocalHips(A, aladin, 'esa-dss')
+    applyLocalHips(A, aladin, surveyId.value)
     refreshAladinView(aladin, host.value)
 
     window.setTimeout(() => {
@@ -368,6 +409,7 @@ async function boot() {
     stageHint.value =
       start.target?.name ?? `Apuntando AR ${start.ra.toFixed(5)}° · Dec ${start.dec.toFixed(5)}°`
     syncCoords()
+    measureSky()
     startCoordWatch()
     void pingBackend()
     void loadPresetCatalog()
@@ -383,6 +425,9 @@ async function boot() {
     errorMessage.value =
       error instanceof Error ? error.message : 'No se pudo cargar Aladin Lite'
     skyHint.value = 'Error al cargar el cielo'
+  } finally {
+    window.clearTimeout(slow)
+    bootLock = false
   }
 }
 
@@ -406,10 +451,27 @@ function syncCoords() {
   if (!aladin) return
   try {
     const [ra, dec] = aladin.getRaDec()
-    liveRa.value = Number(ra).toFixed(5)
-    liveDec.value = Number(dec).toFixed(5)
+    const raN = Number(ra)
+    const decN = Number(dec)
+    liveRa.value = raN.toFixed(5)
+    liveDec.value = decN.toFixed(5)
+    // El dorado del catálogo = “estás en este objetivo”, no “último clic”.
+    // Si el centro del atlas se aleja, se apaga el bloque.
+    syncActiveTargetHighlight(raN, decN)
   } catch {
     /* ignore */
+  }
+}
+
+/** Apaga el preset activo si el cielo ya no apunta a ese objeto. */
+function syncActiveTargetHighlight(ra: number, dec: number) {
+  const t = activeTarget.value
+  if (!t || stage.value === 'flying') return
+  const limit = Math.max(t.radius_deg || 0, t.fov_deg || 0, 0.4)
+  if (angularDistanceDeg(ra, dec, t.ra, t.dec) <= limit) return
+  activeTarget.value = null
+  if (stageHint.value === t.name || stageHint.value.startsWith(t.name)) {
+    stageHint.value = `AR ${ra.toFixed(5)}° · Dec ${dec.toFixed(5)}°`
   }
 }
 
@@ -419,19 +481,25 @@ function syncFoVFromAladin() {
   try {
     const fov = aladin.getFov?.()?.[0]
     if (typeof fov !== 'number' || !Number.isFinite(fov)) return
-    // La rueda de Aladin puede pasar del mínimo y dejar el DSS pixeleado.
+    // Tope duro (como antes): se puede acercar hasta FOV_MIN.
     if (fov < FOV_MIN) {
       setAladinFoV(aladin, FOV_MIN)
       fovInput.value = FOV_MIN
-      skyHint.value = 'Límite del atlas DSS · el detalle fino está en Movimiento'
+      atlasAtLimit.value = true
       return
     }
+    atlasAtLimit.value = fov <= FOV_SOFT_LIMIT
     const rounded = roundFov(fov)
     const current = Number(fovInput.value)
     // Umbral relativo (1 %): con FOV pequeños un 0.01° fijo ocultaba el zoom de la URL.
     const threshold = Math.max(0.001, Math.abs(current) * 0.01)
     if (!Number.isFinite(current) || Math.abs(rounded - current) > threshold) {
       fovInput.value = rounded
+    }
+    try {
+      aladin.removeImageLayer?.('ps1-hd')
+    } catch {
+      /* la capa FITS vieja se dibujaba a bloques */
     }
   } catch {
     /* ignore */
@@ -504,7 +572,7 @@ function goToCoords() {
 
   // FOV útil para ver el campo (si está muy abierto parece “cualquier cielo”).
   if (!Number.isFinite(Number(fovInput.value)) || Number(fovInput.value) > 2) {
-    fovInput.value = 0.55
+    fovInput.value = Math.max(FOV_MIN, 0.55)
   }
 
   aladin.gotoRaDec(ra, dec)
@@ -533,10 +601,37 @@ function applySurvey() {
   }
 }
 
+/** Clic en un cutout SPHEREx → Aladin mira el mismo parche (contexto DSS óptico). */
+async function focusCutoutOnAtlas(payload: { ra: number; dec: number; fovDeg: number }) {
+  const aladin = aladinRef.value
+  if (!aladin || status.value !== 'ready') {
+    skyHint.value = 'El atlas aún no está listo'
+    return
+  }
+  const token = ++journeyToken
+  const targetFov = Math.min(FOV_MAX, Math.max(FOV_MIN, payload.fovDeg))
+  const from = Math.min(FOV_MAX, Math.max(FOV_MIN, Number(fovInput.value) || 2))
+  raInput.value = payload.ra.toFixed(6)
+  decInput.value = payload.dec.toFixed(6)
+  stampRa.value = payload.ra
+  stampDec.value = payload.dec
+  aladin.gotoRaDec(payload.ra, payload.dec)
+  syncCoords()
+  atlasAtLimit.value = targetFov <= FOV_SOFT_LIMIT
+  skyHint.value = `Campo centrado · FOV ${targetFov.toFixed(2)}°`
+  stage.value = 'hd'
+  stageHint.value = 'Contexto óptico del recorte'
+  await animateFoV(from, targetFov, 700, token)
+  if (token !== journeyToken) return
+  refreshAladinView(aladin, host.value)
+}
+
 function zoomBy(factor: number) {
-  const next = Math.min(FOV_MAX, Math.max(FOV_MIN, (Number(fovInput.value) || 2) * factor))
+  const current = Number(fovInput.value) || 2
+  const next = Math.min(FOV_MAX, Math.max(FOV_MIN, current * factor))
   fovInput.value = Number(next.toFixed(next < 1 ? 3 : 2))
   applyFoVLive()
+  atlasAtLimit.value = next <= FOV_SOFT_LIMIT
   stage.value = 'hd'
 }
 
@@ -653,10 +748,12 @@ async function loadStampsAt(ra: number, dec: number, mode: StampMode = stampMode
 function showSpherex() {
   motionMode.value = 'spherex'
   stopBlink()
+  openSpherexFloat()
 }
 
 async function showWiseCompare() {
   motionMode.value = 'wise'
+  spherexFloatOpen.value = false
   const ra = stampRa.value
   const dec = stampDec.value
   if (ra == null || dec == null) return
@@ -675,10 +772,27 @@ async function setStampMode(mode: StampMode) {
 }
 
 function openStampsTab() {
-  drawerOpen.value = true
-  sideTab.value = 'stamps'
   motionMode.value = 'spherex'
   stopBlink()
+  openSpherexFloat()
+}
+
+function openSpherexFloat() {
+  motionMode.value = 'spherex'
+  stopBlink()
+  drawerOpen.value = false
+  detailOpen.value = false
+  spherexFloatOpen.value = true
+  spherexFloatTick.value += 1
+}
+
+function toggleDrawer() {
+  drawerOpen.value = !drawerOpen.value
+  if (drawerOpen.value) spherexFloatOpen.value = false
+}
+
+function presetTip(t: PresetLocation): string {
+  return [t.highlight, t.description].filter(Boolean).join(' — ')
 }
 
 function presetCue(preset: PresetLocation): string {
@@ -730,7 +844,13 @@ async function visitPreset(
   raInput.value = target.ra.toFixed(6)
   decInput.value = target.dec.toFixed(6)
   drawerOpen.value = true
-  sideTab.value = target.category === 'official_test' ? 'stamps' : 'info'
+  sideTab.value = 'info'
+  if (target.category === 'official_test') {
+    motionMode.value = 'spherex'
+    openSpherexFloat()
+  } else {
+    spherexFloatOpen.value = false
+  }
 
   stage.value = 'flying'
   stageHint.value = target.name
@@ -738,14 +858,16 @@ async function visitPreset(
   stampDec.value = target.dec
   motionRadius.value = OBS_RADIUS_ARCSEC
 
-  surveyId.value = 'esa-dss'
+  // Nebulosas / campos: DSS color se ve más “real” al acercarse con tiles HD.
+  surveyId.value = target.category === 'survey_field' ? 'dss2-color' : 'esa-dss'
   applySurvey()
-  // Atlas: FOV cómodo para DSS. El “zoom extremo” es Sellos, no el cielo de fondo.
+  // Atlas: FOV cómodo para DSS. El zoom extremo SPHEREx es Detalle / Blink.
   const atlasFov = Math.min(FOV_MAX, Math.max(FOV_MIN, fovHd))
-  const wide = Math.min(6, Math.max(atlasFov * 4, atlasFov + 0.4))
+  const wide = Math.min(8, Math.max(atlasFov * 4, atlasFov + 0.5))
   aladin.gotoRaDec(target.ra, target.dec)
   setAladinFoV(aladin, wide)
   fovInput.value = wide
+  atlasAtLimit.value = false
   syncCoords()
 
   await sleep(350)
@@ -935,9 +1057,29 @@ function useObsTarget(obs: Record<string, unknown>) {
   if (motionMode.value === 'wise') void loadStampsAt(ra, dec)
 }
 
+function openObsDetail(obs: Record<string, unknown>) {
+  detailObs.value = {
+    ...obs,
+    // Si el SIA no trae s_ra/s_dec, usa el punto actual del atlas.
+    s_ra: obs.s_ra ?? obs.ra ?? stampRa.value ?? parseCoord(raInput.value, 'ra'),
+    s_dec: obs.s_dec ?? obs.dec ?? stampDec.value ?? parseCoord(decInput.value, 'dec'),
+    collection: obs.collection ?? 'spherex_dr1',
+  }
+  detailOpen.value = true
+  detailTick.value += 1
+  skyHint.value = `Detalle SPHEREx · ${shortObsId(obs.obs_id)}`
+}
+
 function openExternal(url: unknown) {
   if (typeof url !== 'string' || !url) return
   window.open(url, '_blank', 'noopener,noreferrer')
+}
+
+function measureSky() {
+  const el = host.value
+  if (!el) return
+  const rect = el.getBoundingClientRect()
+  if (rect.width > 0 && rect.height > 0) skyAspect.value = rect.width / rect.height
 }
 
 function goBack() {
@@ -954,9 +1096,18 @@ function openIn3d() {
   })
 }
 
+watch(spherexFloatOpen, () => {
+  void nextTick(() => {
+    measureSky()
+    const aladin = aladinRef.value
+    if (aladin) refreshAladinView(aladin, host.value)
+  })
+})
+
 onMounted(() => {
   document.documentElement.classList.add('is-explorer')
   document.documentElement.classList.remove('is-look-locked')
+  window.addEventListener('resize', measureSky)
   void boot()
 })
 
@@ -973,14 +1124,22 @@ onUnmounted(() => {
   }
   aladinRef.value = null
   if (host.value) host.value.innerHTML = ''
+  window.removeEventListener('resize', measureSky)
   document.documentElement.classList.remove('is-explorer')
 })
 </script>
 
 <template>
-  <div class="sky" :class="{ 'sky--embed': isEmbed }">
+  <div class="sky" :class="{ 'sky--embed': isEmbed, 'sky--split': spherexFloatOpen && !isEmbed }">
     <div ref="host" class="sky__canvas" aria-label="Atlas Aladin Lite" />
-
+    <SharpPhotoLayer
+      v-if="status === 'ready' && !isEmbed"
+      :ra="Number(liveRa)"
+      :dec="Number(liveDec)"
+      :fov-deg="Number(fovInput) || 2"
+      :aspect="skyAspect"
+      :enabled="stage !== 'flying'"
+    />
     <!-- HUD: una sola franja superior, sin FABs sueltos que choquen -->
     <header v-if="!isEmbed" class="sky__top">
       <div class="sky__brand" :class="{ 'is-pushed': catalogOpen }">
@@ -1001,7 +1160,7 @@ onUnmounted(() => {
           type="button"
           class="btn"
           :class="{ 'btn--on': drawerOpen }"
-          @click="drawerOpen = !drawerOpen"
+          @click="toggleDrawer"
         >
           Datos
         </button>
@@ -1022,7 +1181,14 @@ onUnmounted(() => {
         >
           Compartir
         </button>
-        <button type="button" class="btn btn--gold" @click="openIn3d">3D</button>
+        <button
+          type="button"
+          class="btn btn--gold"
+          title="3D real del sistema solar. Estas estrellas no tienen un modelo de volumen."
+          @click="openIn3d"
+        >
+          3D
+        </button>
         <button type="button" class="btn btn--ghost" @click="goBack">Salir</button>
       </div>
     </header>
@@ -1093,37 +1259,36 @@ onUnmounted(() => {
       <button type="button" class="btn btn--ghost" @click="shareOpen = false">Cerrar</button>
     </div>
 
-    <aside v-if="status === 'ready' && catalogOpen && !isEmbed" class="panel panel--left">
+    <aside v-if="status === 'ready' && catalogOpen && !isEmbed" class="panel panel--left panel--catalog">
       <div class="panel__head">
-        <h2>Objetivos del reto</h2>
-        <button type="button" class="panel__x" @click="catalogOpen = false">×</button>
+        <h2>Objetivos</h2>
+        <button type="button" class="panel__x" @click="catalogOpen = false">Cerrar</button>
       </div>
-      <div class="panel__body">
-        <p class="dest-lead">
-          Un clic → centra (época {{ SPHEREX_EPOCH }}) + SPHEREx + blink.
-        </p>
+      <div class="panel__body panel__body--catalog">
         <button
           v-for="t in officialPresets"
           :key="t.id"
           type="button"
           class="dest"
           :class="{ 'is-on': activeTarget?.id === t.id }"
+          :title="presetTip(t)"
           @click="visitPreset(t)"
         >
           <strong>{{ t.name }}</strong>
           <span>{{ presetCue(t) }}</span>
         </button>
-        <p class="dest-group">Campos de sondeo</p>
+        <p class="dest-group">Campos</p>
         <button
           v-for="t in surveyPresets"
           :key="t.id"
           type="button"
           class="dest"
           :class="{ 'is-on': activeTarget?.id === t.id }"
+          :title="presetTip(t)"
           @click="visitPreset(t)"
         >
           <strong>{{ t.name }}</strong>
-          <span>{{ t.highlight }}</span>
+          <span>Campo</span>
         </button>
       </div>
     </aside>
@@ -1148,7 +1313,7 @@ onUnmounted(() => {
             Movimiento
           </button>
         </div>
-        <button type="button" class="panel__x" @click="drawerOpen = false">×</button>
+        <button type="button" class="panel__x" @click="drawerOpen = false">Cerrar</button>
       </div>
 
       <div v-if="sideTab === 'info'" class="panel__body">
@@ -1179,16 +1344,10 @@ onUnmounted(() => {
             <p>{{ shortObsId(obs.obs_id) }}</p>
             <span>{{ bandLabel(obs.energy_bandpassname) }} · {{ mjdToHint(obs.t_min) }}</span>
             <div class="obs__row">
-              <button type="button" class="mini" @click="useObsTarget(obs)">Ir</button>
-              <button
-                v-if="obs.cutout_url"
-                type="button"
-                class="mini mini--gold"
-                :title="hostFromUrl(obs.cutout_url)"
-                @click="openExternal(obs.cutout_url)"
-              >
-                Cutout
+              <button type="button" class="mini mini--gold" title="Cutout real + metadatos" @click="openObsDetail(obs)">
+                Detalle
               </button>
+              <button type="button" class="mini" @click="useObsTarget(obs)">Ir</button>
               <button
                 v-if="obs.access_url"
                 type="button"
@@ -1202,59 +1361,71 @@ onUnmounted(() => {
         </ul>
 
         <button type="button" class="btn btn--ghost info-more" @click="openStampsTab">
-          Ver movimiento SPHEREx →
+          Abrir blink →
         </button>
       </div>
 
       <div v-else class="panel__body stamps">
-        <p v-if="activeTarget?.category === 'official_test'" class="info-text">
-          <strong>{{ activeTarget.name }}.</strong> {{ activeTarget.highlight }}
-        </p>
-        <div class="stamp-modes">
+        <div class="motion-head">
+          <p class="motion-head__name" :title="activeTarget?.highlight || ''">
+            {{ activeTarget?.name || 'Movimiento' }}
+          </p>
+          <p class="motion-head__hint">Elige fuente · abre o cierra el blink</p>
+        </div>
+
+        <div class="seg" role="tablist" aria-label="Fuente de movimiento">
           <button
             type="button"
-            class="mode"
+            class="seg__btn"
             :class="{ 'is-on': motionMode === 'spherex' }"
+            role="tab"
+            :aria-selected="motionMode === 'spherex'"
             @click="showSpherex"
           >
             SPHEREx
           </button>
           <button
             type="button"
-            class="mode"
+            class="seg__btn"
             :class="{ 'is-on': motionMode === 'wise' }"
+            role="tab"
+            :aria-selected="motionMode === 'wise'"
             @click="showWiseCompare"
           >
-            Comparar con WISE
+            WISE
           </button>
         </div>
 
-        <SpherexPlayer
-          v-if="motionMode === 'spherex' && playerRa != null && playerDec != null"
-          :ra="playerRa"
-          :dec="playerDec"
-          :radius="motionRadius"
-          :cutout-size="CUTOUT_SIZE_DEG"
-        />
-        <p v-else-if="motionMode === 'spherex'" class="info-err">No hay coordenadas válidas para el video.</p>
+        <template v-if="motionMode === 'spherex'">
+          <p v-if="playerRa == null || playerDec == null" class="info-err">Sin coordenadas.</p>
+          <div v-else class="motion-actions">
+            <button
+              type="button"
+              class="action action--primary"
+              :class="{ 'is-live': spherexFloatOpen }"
+              title="Abre o trae el blink al frente"
+              @click="openSpherexFloat"
+            >
+              {{ spherexFloatOpen ? 'Traer blink' : 'Abrir blink' }}
+            </button>
+            <button
+              v-if="spherexFloatOpen"
+              type="button"
+              class="action action--soft"
+              title="Cierra la ventana flotante"
+              @click="spherexFloatOpen = false"
+            >
+              Cerrar
+            </button>
+          </div>
+          <p v-if="spherexFloatOpen" class="motion-status">Ventana abierta · arrástrala sobre el cielo</p>
+        </template>
 
         <template v-else>
-        <p class="info-text">
-          <template v-if="stampMode === 'epochs'">
-            Versión didáctica de WiseView: blink entre <strong>épocas unWISE</strong> (NEO2→NEO11).
-            Equivale al sliding window + blink de WiseView, sin 15 sliders. Mismas coords, años
-            distintos → se ve el movimiento. El atlas HD es el contexto.
-          </template>
-          <template v-else>
-            Bandas ópticas PanSTARRS (como el recorte inferior de WiseView): brillo/color, no
-            movimiento. Para ver desplazamiento, usa Épocas.
-          </template>
-        </p>
-
-        <div class="stamp-modes">
+        <div class="seg seg--sub" role="tablist" aria-label="Tipo WISE">
           <button
             type="button"
-            class="mode"
+            class="seg__btn"
             :class="{ 'is-on': stampMode === 'epochs' }"
             @click="setStampMode('epochs')"
           >
@@ -1262,11 +1433,11 @@ onUnmounted(() => {
           </button>
           <button
             type="button"
-            class="mode"
+            class="seg__btn"
             :class="{ 'is-on': stampMode === 'bands' }"
             @click="setStampMode('bands')"
           >
-            Bandas PS1
+            Bandas
           </button>
         </div>
 
@@ -1332,6 +1503,34 @@ onUnmounted(() => {
         </template>
       </div>
     </aside>
+
+    <FloatingMotionWindow
+      v-if="status === 'ready' && !isEmbed && playerRa != null && playerDec != null"
+      :open="spherexFloatOpen"
+      :tick="spherexFloatTick"
+      :title="activeTarget?.name || 'SPHEREx'"
+      :note="activeTarget?.highlight || ''"
+      :object-type="activeTarget?.object_type || ''"
+      :ra="playerRa"
+      :dec="playerDec"
+      :radius="motionRadius"
+      :cutout-size="CUTOUT_SIZE_DEG"
+      @close="spherexFloatOpen = false"
+      @focus-sky="focusCutoutOnAtlas"
+    />
+
+    <SpherexDetailWindow
+      v-if="status === 'ready' && !isEmbed"
+      :open="detailOpen"
+      :tick="detailTick"
+      :obs="detailObs"
+      :cutout-size="CUTOUT_SIZE_DEG"
+      @close="detailOpen = false"
+      @focus-sky="focusCutoutOnAtlas"
+      @open-blink="openSpherexFloat"
+      @open-external="openExternal"
+    />
+
     <!-- Modo embed (?embed=1): solo atlas + reproductor compacto + enlace a la app -->
     <template v-if="status === 'ready' && isEmbed">
       <a class="embed-open" :href="fullAppUrl" target="_blank" rel="noopener noreferrer">
@@ -1367,9 +1566,9 @@ onUnmounted(() => {
         <span :class="backendOk ? 'ok' : 'bad'">{{ backendOk ? 'API ok' : 'API…' }}</span>
       </div>
       <div class="sky__bar-zoom">
-        <button type="button" class="zoom-btn" @click="zoomBy(0.65)">+</button>
+        <button type="button" class="zoom-btn" title="Acercar" @click="zoomBy(0.65)">+</button>
         <input v-model.number="zoomSlider" type="range" min="0" max="1000" />
-        <button type="button" class="zoom-btn" @click="zoomBy(1.45)">−</button>
+        <button type="button" class="zoom-btn" title="Alejar" @click="zoomBy(1.45)">−</button>
         <strong>{{ zoomLabel }}</strong>
       </div>
     </footer>
@@ -1394,6 +1593,19 @@ onUnmounted(() => {
 .sky__canvas {
   position: absolute;
   inset: 0;
+}
+
+.sky--split .sky__canvas,
+.sky--split :deep(.sharp) {
+  right: 50%;
+}
+
+@media (max-width: 800px) {
+  .sky--split .sky__canvas,
+  .sky--split :deep(.sharp) {
+    right: 0;
+    bottom: 50%;
+  }
 }
 
 .sky__canvas :deep(.aladin-container),
@@ -1453,7 +1665,7 @@ onUnmounted(() => {
 
 /* Evita choque título ↔ panel Objetivos */
 .sky__brand.is-pushed {
-  margin-left: min(20rem, calc(100vw - 3rem));
+  margin-left: min(15.5rem, calc(100vw - 3rem));
   max-width: min(36vw, 22rem);
 }
 
@@ -1525,6 +1737,30 @@ onUnmounted(() => {
   border-color: rgba(232, 196, 120, 0.75);
   color: #ffe9b8;
   background: rgba(232, 196, 120, 0.16);
+  animation: soft-pulse 2.4s ease-in-out infinite;
+}
+
+@keyframes soft-pulse {
+  0%,
+  100% {
+    box-shadow: 0 0 0 0 rgba(232, 196, 120, 0);
+    border-color: rgba(232, 196, 120, 0.55);
+  }
+  50% {
+    box-shadow: 0 0 0 3px rgba(232, 196, 120, 0.12), 0 0 18px rgba(232, 196, 120, 0.18);
+    border-color: rgba(232, 196, 120, 0.95);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .btn--on,
+  .seg__btn.is-on,
+  .action.is-live,
+  .dest.is-on,
+  .player__band.is-on,
+  .tab.is-on {
+    animation: none !important;
+  }
 }
 
 .sky__search {
@@ -1714,6 +1950,18 @@ onUnmounted(() => {
   left: 1rem;
 }
 
+.panel--catalog {
+  width: min(14.5rem, calc(100vw - 2rem));
+  bottom: auto;
+  max-height: min(70vh, 28rem);
+}
+
+.panel__body--catalog {
+  padding: 0.55rem;
+  display: grid;
+  gap: 0.35rem;
+}
+
 .panel--right {
   right: 1rem;
   width: min(24rem, calc(100vw - 2rem));
@@ -1737,12 +1985,21 @@ onUnmounted(() => {
 }
 
 .panel__x {
-  border: 0;
-  background: transparent;
-  color: rgba(255, 255, 255, 0.7);
-  font-size: 1.4rem;
+  border: 1px solid rgba(255, 255, 255, 0.22);
+  background: rgba(255, 255, 255, 0.05);
+  color: rgba(255, 255, 255, 0.8);
+  font-size: 0.72rem;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
   line-height: 1;
-  padding: 0 0.2rem;
+  padding: 0.35rem 0.5rem;
+  border-radius: 0.35rem;
+  cursor: pointer;
+}
+
+.panel__x:hover {
+  border-color: rgba(232, 196, 120, 0.5);
+  color: #ffe9b8;
 }
 
 .panel__body {
@@ -1771,38 +2028,23 @@ onUnmounted(() => {
   border-color: rgba(232, 196, 120, 0.5);
   color: #ffe9b8;
   background: rgba(232, 196, 120, 0.1);
-}
-
-.dest-lead,
-.dest-group {
-  margin: 0 0 0.75rem;
-  font-size: 0.86rem;
-  line-height: 1.4;
-  color: rgba(255, 255, 255, 0.62);
-}
-
-.dest-lead .ok {
-  color: #9fd4ff;
-}
-
-.dest-lead .warn {
-  color: #fda4af;
+  animation: soft-pulse 2.6s ease-in-out infinite;
 }
 
 .dest-group {
-  margin-top: 1rem;
+  margin: 0.35rem 0 0.1rem;
   letter-spacing: 0.08em;
   text-transform: uppercase;
-  font-size: 0.72rem;
+  font-size: 0.65rem;
   color: rgba(255, 255, 255, 0.45);
 }
 
 .dest {
   display: grid;
-  gap: 0.2rem;
+  gap: 0.15rem;
   width: 100%;
-  margin-bottom: 0.45rem;
-  padding: 0.85rem 0.9rem;
+  margin: 0;
+  padding: 0.45rem 0.55rem;
   text-align: left;
   border: 1px solid rgba(255, 255, 255, 0.14);
   background: rgba(255, 255, 255, 0.03);
@@ -1811,11 +2053,12 @@ onUnmounted(() => {
 }
 
 .dest strong {
-  font-size: 1.05rem;
+  font-size: 0.88rem;
+  line-height: 1.2;
 }
 
 .dest span {
-  font-size: 0.85rem;
+  font-size: 0.72rem;
   color: rgba(255, 255, 255, 0.55);
 }
 
@@ -1829,6 +2072,7 @@ onUnmounted(() => {
   border-color: rgba(232, 196, 120, 0.85);
   background: rgba(232, 196, 120, 0.16);
   box-shadow: inset 3px 0 0 #e8c478;
+  animation: soft-pulse 2.6s ease-in-out infinite;
 }
 
 .dest.is-on span {
@@ -1923,6 +2167,108 @@ onUnmounted(() => {
   color: #ffe9b8;
 }
 
+.motion-head {
+  margin: 0 0 0.75rem;
+}
+
+.motion-head__name {
+  margin: 0;
+  font-size: 1.05rem;
+  font-weight: 650;
+  color: #fff;
+}
+
+.motion-head__hint {
+  margin: 0.25rem 0 0;
+  font-size: 0.78rem;
+  color: rgba(255, 255, 255, 0.55);
+}
+
+.seg {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 0.3rem;
+  padding: 0.25rem;
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  border-radius: 0.55rem;
+  background: rgba(0, 0, 0, 0.35);
+}
+
+.seg--sub {
+  margin-top: 0.65rem;
+}
+
+.seg__btn {
+  border: 1px solid transparent;
+  background: transparent;
+  color: rgba(255, 255, 255, 0.7);
+  padding: 0.55rem 0.4rem;
+  font-size: 0.78rem;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  border-radius: 0.4rem;
+  cursor: pointer;
+  transition: color 160ms ease, background 160ms ease, border-color 160ms ease;
+}
+
+.seg__btn:hover {
+  color: #fff;
+  background: rgba(255, 255, 255, 0.06);
+}
+
+.seg__btn.is-on {
+  color: #ffe9b8;
+  border-color: rgba(232, 196, 120, 0.55);
+  background: rgba(232, 196, 120, 0.14);
+  animation: soft-pulse 2.4s ease-in-out infinite;
+}
+
+.motion-actions {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  gap: 0.4rem;
+  margin-top: 0.75rem;
+}
+
+.action {
+  border: 1px solid rgba(255, 255, 255, 0.28);
+  background: rgba(255, 255, 255, 0.05);
+  color: rgba(255, 255, 255, 0.85);
+  padding: 0.65rem 0.75rem;
+  font-size: 0.78rem;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  border-radius: 0.45rem;
+  cursor: pointer;
+  transition: border-color 160ms ease, background 160ms ease, color 160ms ease;
+}
+
+.action--primary {
+  border-color: rgba(232, 196, 120, 0.65);
+  color: #ffe9b8;
+  background: rgba(232, 196, 120, 0.12);
+}
+
+.action--primary.is-live {
+  animation: soft-pulse 2.2s ease-in-out infinite;
+}
+
+.action--soft {
+  min-width: 5.5rem;
+  color: rgba(255, 255, 255, 0.75);
+}
+
+.action:hover {
+  border-color: rgba(232, 196, 120, 0.55);
+  color: #ffe9b8;
+}
+
+.motion-status {
+  margin: 0.55rem 0 0;
+  font-size: 0.75rem;
+  color: rgba(255, 233, 184, 0.75);
+}
+
 .stamp-modes {
   display: flex;
   gap: 0.4rem;
@@ -1945,6 +2291,7 @@ onUnmounted(() => {
   border-color: rgba(232, 196, 120, 0.7);
   color: #ffe9b8;
   background: rgba(232, 196, 120, 0.12);
+  animation: soft-pulse 2.4s ease-in-out infinite;
 }
 
 .blink-row {
@@ -2076,6 +2423,12 @@ onUnmounted(() => {
 
 .sky__bar-coords .bad {
   color: #fda4af;
+}
+
+.sky__bar-cta {
+  padding: 0.4rem 0.65rem;
+  font-size: 0.72rem;
+  animation: soft-pulse 2.2s ease-in-out infinite;
 }
 
 .sky__bar-zoom {
