@@ -14,6 +14,7 @@ export const es: Messages = {
     space: 'Espacio',
     explore: 'Explorar',
     spherex: 'SPHEREx',
+    catalog: 'Catálogo',
     about: 'Qué somos',
     menu: 'Menú',
     close: 'Cerrar',
@@ -291,10 +292,25 @@ export const es: Messages = {
       },
     },
   },
+  catalog: {
+    kicker: 'De lejos',
+    title: 'Un catálogo para reconocer el cielo',
+    lead: 'Cada cuerpo gira como se ve a distancia. Ábrelo para saber cómo identificarlo y qué cosas del patio se le parecen.',
+    back: 'Volver',
+    close: 'Cerrar',
+    far: 'Cómo se ve',
+    identify: 'Cómo identificarlo',
+    traps: 'En el patio, no lo confundas con',
+    rows: {
+      sky: 'En el cielo',
+      yard: 'En el patio',
+    },
+  },
   routes: {
     explorer: 'Explorar',
     mission: 'Misión SPHEREx',
     home: 'Panel',
     about: 'Qué somos',
+    catalog: 'Catálogo',
   },
 }

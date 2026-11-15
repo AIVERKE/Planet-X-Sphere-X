@@ -26,6 +26,7 @@ export interface Messages {
     space: string
     explore: string
     spherex: string
+    catalog: string
     about: string
     menu: string
     close: string
@@ -111,10 +112,22 @@ export interface Messages {
       }
     >
   }
+  catalog: {
+    kicker: string
+    title: string
+    lead: string
+    back: string
+    close: string
+    far: string
+    identify: string
+    traps: string
+    rows: Record<'sky' | 'yard', string>
+  }
   routes: {
     explorer: string
     mission: string
     home: string
     about: string
+    catalog: string
   }
 }

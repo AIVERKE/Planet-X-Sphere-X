@@ -40,6 +40,11 @@ function openAbout() {
   open.value = false
   void router.push({ name: 'about' })
 }
+
+function openCatalog() {
+  open.value = false
+  void router.push({ name: 'catalog' })
+}
 </script>
 
 <template>
@@ -69,6 +74,13 @@ function openAbout() {
           @click="go(link.progress)"
         >
           {{ link.label }}
+        </button>
+        <button
+          type="button"
+          class="hud-link-gold hud-underline hud-underline-gold pb-1 text-[11px] tracking-[0.24em] uppercase"
+          @click="openCatalog"
+        >
+          {{ m.nav.catalog }}
         </button>
         <button
           type="button"
@@ -109,6 +121,13 @@ function openAbout() {
         @click="go(link.progress)"
       >
         {{ link.label }}
+      </button>
+      <button
+        type="button"
+        class="hud-link-gold hud-underline hud-underline-gold w-fit pb-1 text-[12px] tracking-[0.28em] uppercase"
+        @click="openCatalog"
+      >
+        {{ m.nav.catalog }}
       </button>
       <button
         type="button"
