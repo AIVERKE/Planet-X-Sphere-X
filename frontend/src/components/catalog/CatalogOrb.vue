@@ -7,12 +7,10 @@ import {
   CanvasTexture,
   Color,
   DirectionalLight,
-  DoubleSide,
   Float32BufferAttribute,
   Group,
   Matrix4,
   Mesh,
-  MeshStandardMaterial,
   PerspectiveCamera,
   Points,
   PointsMaterial,
@@ -222,32 +220,6 @@ function makeJupiter() {
   return new Mesh(keep(new SphereGeometry(1, 64, 40)), material)
 }
 
-function makeCraft() {
-  const group = new Group()
-  const hull = new Mesh(
-    keep(new SphereGeometry(0.34, 24, 16)),
-    keep(new MeshStandardMaterial({ color: props.colors[0], metalness: 0.72, roughness: 0.28 })),
-  )
-  hull.scale.set(1.55, 0.62, 0.62)
-  const panel = keep(
-    new MeshStandardMaterial({
-      color: props.colors[1],
-      metalness: 0.45,
-      roughness: 0.32,
-      side: DoubleSide,
-      emissive: props.colors[2],
-      emissiveIntensity: 0.15,
-    }),
-  )
-  const left = new Mesh(keep(new SphereGeometry(0.42, 12, 8)), panel)
-  left.scale.set(0.18, 1.15, 0.55)
-  left.position.x = -0.72
-  const right = left.clone()
-  right.position.x = 0.72
-  group.add(hull, left, right)
-  return group
-}
-
 function starTexture() {
   const canvas = document.createElement('canvas')
   canvas.width = 32
@@ -299,8 +271,6 @@ function buildRoot() {
   const group = new Group()
   if (props.shape === 'jupiter') {
     group.add(makeJupiter())
-  } else if (props.shape === 'craft') {
-    group.add(makeCraft())
   } else {
     volume = makeVolume(props.shape)
     group.add(volume)
@@ -329,7 +299,7 @@ function syncCamera() {
 function tick() {
   if (disposed || !renderer || !scene || !camera) return
   const reduce = window.matchMedia('(prefers-reduced-motion: reduce)').matches
-  if (root && !reduce) root.rotation.y += props.shape === 'craft' ? 0.012 : 0.0045
+  if (root && !reduce) root.rotation.y += 0.0045
   syncCamera()
   renderer.render(scene, camera)
   frame = requestAnimationFrame(tick)
@@ -346,7 +316,7 @@ function boot() {
   renderer.outputColorSpace = SRGBColorSpace
   scene = new Scene()
   camera = new PerspectiveCamera(30, 1, 0.1, 30)
-  camera.position.set(0, 0.05, props.shape === 'jupiter' ? 3.35 : 3.7)
+  camera.position.set(0, 0.05, props.shape === 'jupiter' ? 4.3 : 3.7)
   scene.add(starfield())
   scene.add(new AmbientLight('#fff4e4', 0.45))
   const key = new DirectionalLight('#fff8ee', 2.2)
