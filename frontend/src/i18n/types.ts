@@ -1,0 +1,120 @@
+export type Locale = 'es' | 'en'
+
+export interface ChapterCopy {
+  name: string
+  title: string
+  body: string
+}
+
+export interface PlanetCopy {
+  name: string
+  type: string
+  hotspots: Record<string, string>
+}
+
+export interface Messages {
+  lang: {
+    switchTo: string
+    switchToShort: string
+    current: string
+    aria: string
+  }
+  brand: string
+  nav: {
+    landscape: string
+    world: string
+    space: string
+    explore: string
+    spherex: string
+    about: string
+    menu: string
+    close: string
+  }
+  look: {
+    loading: string
+    lookingSky: string
+    dragHint: string
+    ascend: string
+  }
+  scroll: {
+    continue: string
+  }
+  chapters: Record<string, ChapterCopy>
+  markers: Record<string, string>
+  search: {
+    label: string
+    placeholder: string
+    empty: string
+  }
+  filters: {
+    aria: string
+    todos: string
+    estrella: string
+    rocosos: string
+    gaseosos: string
+    satelite: string
+    habitables: string
+  }
+  telemetry: {
+    mission: string
+    distance: string
+    gravity: string
+    temperature: string
+    habitability: string
+    atmosphere: string
+    travelOrbit: string
+    travelSurface: string
+    backOrbit: string
+    backJourney: string
+    au: string
+  }
+  planets: Record<string, PlanetCopy>
+  gases: Record<string, string>
+  spherex: {
+    titleLine1: string
+    titleLine2: string
+    openLine1: string
+    openLine2: string
+    openTitle: string
+    probeAlt: string
+  }
+  mission: {
+    eyebrow: string
+    title: string
+    back: string
+    loading: string
+    errorTitle: string
+    errorFallback: string
+    retry: string
+    hint: string
+    aladinAria: string
+  }
+  panel: {
+    homeTitle: string
+    homeBody: string
+    navHome: string
+    openMenu: string
+  }
+  about: {
+    brand: string
+    back: string
+    scrollHint: string
+    loading: string
+    error: string
+    sections: Record<
+      string,
+      {
+        name: string
+        title: string
+        body: string
+        points?: string[]
+      }
+    >
+  }
+  routes: {
+    explorer: string
+    mission: string
+    home: string
+    about: string
+  }
+}

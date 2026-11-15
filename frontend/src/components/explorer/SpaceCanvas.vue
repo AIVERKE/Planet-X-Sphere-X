@@ -48,7 +48,14 @@ onMounted(async () => {
     const loop = () => {
       if (!renderer || !rig) return
       cameraRig.frame()
-      rig.update(clock.getElapsedTime(), store.scrollProgress, renderer, view, store.cameraMode)
+      rig.update(
+        clock.getElapsedTime(),
+        store.scrollProgress,
+        renderer,
+        view,
+        store.cameraMode,
+        store.visualOverride,
+      )
       if (store.cameraMode !== 'look') {
         updateProjected(view, window.innerWidth, window.innerHeight)
       }

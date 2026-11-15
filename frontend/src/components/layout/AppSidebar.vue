@@ -1,12 +1,15 @@
 <script setup lang="ts">
+import { computed } from 'vue'
+import { useI18n } from '@/composables/useI18n'
 import { useAppStore } from '@/stores/app'
 import type { NavItem } from '@/types'
 
 const app = useAppStore()
+const { m } = useI18n()
 
-const items: NavItem[] = [
-  { title: 'Inicio', to: '/', icon: 'mdi-home-outline' },
-]
+const items = computed<NavItem[]>(() => [
+  { title: m.value.panel.navHome, to: '/', icon: 'mdi-home-outline' },
+])
 </script>
 
 <template>

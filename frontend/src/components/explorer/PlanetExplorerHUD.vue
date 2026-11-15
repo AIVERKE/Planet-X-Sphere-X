@@ -1,13 +1,14 @@
 <script setup lang="ts">
 import { computed } from 'vue'
-import { useSpaceStore } from '@/stores/useSpaceStore'
+import { useI18n } from '@/composables/useI18n'
 import { usePlanetSearch } from '@/composables/usePlanetSearch'
+import { useSpaceStore } from '@/stores/useSpaceStore'
 import PlanetSearch from '@/components/explorer/PlanetSearch.vue'
-import PlanetFilters from '@/components/explorer/PlanetFilters.vue'
 import TelemetryCard from '@/components/explorer/TelemetryCard.vue'
 
 const store = useSpaceStore()
 const { results } = usePlanetSearch()
+const { m } = useI18n()
 
 const opacity = computed(() => {
   if (!store.showPlanetHud) {
@@ -32,32 +33,35 @@ function select(id: string) {
     :style="{ opacity, transform: `translateY(${(1 - opacity) * 16}px)` }"
   >
     <section
-      class="absolute top-24 right-4 left-4 md:right-auto md:left-10 md:w-[340px]"
+      class="hud-panel hud-panel--soft absolute top-24 right-4 left-4 p-4 md:right-auto md:left-10 md:w-[300px] md:p-5"
       :class="opacity > 0.2 ? 'pointer-events-auto' : 'pointer-events-none'"
     >
       <PlanetSearch />
-      <PlanetFilters class="mt-5" />
-      <ul class="mt-5 max-h-[28vh] space-y-1 overflow-auto md:max-h-[38vh]">
+      <ul class="mt-5 max-h-[min(52vh,420px)] space-y-0 overflow-y-auto overscroll-contain pr-1">
         <li v-for="planet in results" :key="planet.id">
           <button
             type="button"
-            class="w-full py-3 text-left transition"
-            :class="store.activePlanetId === planet.id ? 'hud-text' : 'hud-link'"
+            class="hud-list-item w-full py-2.5 text-left transition"
+            :class="store.activePlanetId === planet.id ? 'is-active' : 'hud-link'"
             @click="select(planet.id)"
           >
             <span class="hud-text-muted block text-[10px] tracking-[0.18em] uppercase">
               {{ planet.type }}
             </span>
             <span
-              class="mt-1 block text-lg tracking-[0.06em]"
-              :class="store.activePlanetId === planet.id ? 'hud-underline is-active' : ''"
+              class="mt-0.5 block text-base tracking-[0.06em] md:text-lg"
+              :class="
+                store.activePlanetId === planet.id
+                  ? 'hud-underline hud-underline-gold is-active'
+                  : ''
+              "
             >
               {{ planet.name }}
             </span>
           </button>
         </li>
         <li v-if="results.length === 0" class="hud-text-muted px-0 py-3 text-sm">
-          Ningún cuerpo coincide con la búsqueda.
+          {{ m.search.empty }}
         </li>
       </ul>
     </section>
