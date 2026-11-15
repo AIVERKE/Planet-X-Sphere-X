@@ -25,7 +25,9 @@ import {
   fetchUnwiseEpochStamps,
   wiseviewPortalUrl,
 } from '@/services/unwiseEpochs'
-import { SKY_TARGETS, type SkyTarget } from '@/data/skyTargets'
+import { PRESET_FALLBACK, SPHEREX_EPOCH } from '@/data/presetFallback'
+import { getPresets } from '@/services/presets'
+import type { PresetLocation } from '@/types/presets'
 import {
   bandLabel,
   formatRaDec,
@@ -45,7 +47,8 @@ type StampFrame = {
   sub?: string
 }
 
-const FOV_MIN = 0.08
+/** Por debajo de ~0.12° el DSS se ve a bloques: el detalle fino va en Sellos. */
+const FOV_MIN = 0.12
 const FOV_MAX = 40
 
 const router = useRouter()
@@ -73,7 +76,13 @@ const backendOk = ref<boolean | null>(null)
 const obsLoading = ref(false)
 const obsError = ref<string | null>(null)
 const obsResult = ref<ObservationsResponse | null>(null)
-const activeTarget = ref<SkyTarget | null>(SKY_TARGETS[0] ?? null)
+const presets = ref<PresetLocation[]>(PRESET_FALLBACK)
+const presetsFromApi = ref(false)
+const activeTarget = ref<PresetLocation | null>(
+  PRESET_FALLBACK.find((p) => p.id === 'barnard') ?? PRESET_FALLBACK[0] ?? null,
+)
+const officialPresets = computed(() => presets.value.filter((p) => p.category === 'official_test'))
+const surveyPresets = computed(() => presets.value.filter((p) => p.category === 'survey_field'))
 const stage = ref<ViewStage>('idle')
 const stageHint = ref('Elige una nebulosa · el cielo es el protagonista')
 
@@ -162,9 +171,9 @@ async function boot() {
     host.value.innerHTML = ''
     surveyId.value = 'esa-dss'
     const hipsUrl = LOCAL_HIPS['esa-dss'].url
-    const first = SKY_TARGETS[0]
+    const first = activeTarget.value
     const target = first ? `${first.ra} ${first.dec}` : `${raInput.value} ${decInput.value}`
-    const startFov = first?.fovHd ?? 1.8
+    const startFov = first?.fov_deg ?? 0.25
 
     raInput.value = String(first?.ra ?? raInput.value)
     decInput.value = String(first?.dec ?? decInput.value)
@@ -228,8 +237,9 @@ async function boot() {
     syncCoords()
     startCoordWatch()
     void pingBackend()
+    void loadPresetCatalog()
     if (first) {
-      void loadObservationsAt(first.ra, first.dec, first.obsRadius)
+      void loadObservationsAt(first.ra, first.dec, 90)
       void loadStampsAt(first.ra, first.dec)
     }
   } catch (error) {
@@ -272,10 +282,16 @@ function syncFoVFromAladin() {
   if (!aladin || stage.value === 'flying') return
   try {
     const fov = aladin.getFov?.()?.[0]
-    if (typeof fov === 'number' && Number.isFinite(fov)) {
-      const rounded = Number(fov.toFixed(fov < 1 ? 3 : 2))
-      if (Math.abs(rounded - Number(fovInput.value)) > 0.01) fovInput.value = rounded
+    if (typeof fov !== 'number' || !Number.isFinite(fov)) return
+    // La rueda de Aladin puede pasar del mínimo y dejar el DSS pixeleado.
+    if (fov < FOV_MIN) {
+      setAladinFoV(aladin, FOV_MIN)
+      fovInput.value = FOV_MIN
+      skyHint.value = 'Límite del atlas DSS · el detalle fino está en Sellos'
+      return
     }
+    const rounded = Number(fov.toFixed(fov < 1 ? 3 : 2))
+    if (Math.abs(rounded - Number(fovInput.value)) > 0.01) fovInput.value = rounded
   } catch {
     /* ignore */
   }
@@ -296,18 +312,20 @@ function sleep(ms: number) {
 async function animateFoV(from: number, to: number, ms = 1100) {
   const aladin = aladinRef.value
   if (!aladin) return
+  const target = Math.min(FOV_MAX, Math.max(FOV_MIN, to))
+  const start = Math.min(FOV_MAX, Math.max(FOV_MIN, from))
   const steps = 22
   const dt = ms / steps
   for (let i = 1; i <= steps; i++) {
     const t = i / steps
     const eased = 1 - (1 - t) ** 3
-    const fov = from + (to - from) * eased
+    const fov = start + (target - start) * eased
     setAladinFoV(aladin, fov)
     fovInput.value = Number(fov.toFixed(fov < 1 ? 3 : 2))
     await sleep(dt)
   }
-  setAladinFoV(aladin, to)
-  fovInput.value = Number(to.toFixed(to < 1 ? 3 : 2))
+  setAladinFoV(aladin, target)
+  fovInput.value = Number(target.toFixed(target < 1 ? 3 : 2))
 }
 
 /** Acepta "268.34", "268.34°", "+3.58", "3,58". */
@@ -332,15 +350,16 @@ function goToCoords() {
   const ra = parseCoord(raInput.value)
   const dec = parseCoord(decInput.value)
   if (ra == null || dec == null) {
-    searchError.value = 'Coords inválidas. Usa números, ej. 268.33975 y 3.58428'
+    searchError.value =
+      'Coords inválidas. Ejemplo válido: AR 133.79 · Dec −8.24 (como en WiseView)'
     return
   }
   if (ra < 0 || ra >= 360) {
-    searchError.value = 'AR debe estar entre 0 y 360'
+    searchError.value = `AR ${ra}° fuera de rango. La ascensión recta va de 0° a 360° (vuelta completa al cielo).`
     return
   }
   if (dec < -90 || dec > 90) {
-    searchError.value = 'Dec debe estar entre -90 y 90'
+    searchError.value = `Dec ${dec}° no existe. La declinación solo va de −90° (polo sur) a +90° (polo norte). Prueba −8.24.`
     return
   }
 
@@ -438,7 +457,7 @@ async function loadObservations() {
   drawerOpen.value = true
   sideTab.value = 'info'
   await Promise.all([
-    loadObservationsAt(ra, dec, activeTarget.value?.obsRadius ?? 90),
+    loadObservationsAt(ra, dec, 90),
     loadStampsAt(ra, dec),
   ])
 }
@@ -539,7 +558,32 @@ function openStampsTab() {
   sideTab.value = 'stamps'
 }
 
-async function visitTarget(target: SkyTarget) {
+function presetCue(preset: PresetLocation): string {
+  if (preset.object_type === 'variable_star') return 'Brillo'
+  if (preset.category === 'official_test') return 'Movimiento'
+  return 'Campo'
+}
+
+async function loadPresetCatalog() {
+  try {
+    const data = await getPresets({ epoch: SPHEREX_EPOCH })
+    if (!data.length) return
+    presets.value = data
+    presetsFromApi.value = true
+    const current = activeTarget.value
+    const fresh = data.find((p) => p.id === current?.id)
+    if (fresh && journeyToken === 0) {
+      await visitPreset(fresh)
+    } else if (fresh) {
+      activeTarget.value = fresh
+    }
+  } catch {
+    presets.value = PRESET_FALLBACK
+    presetsFromApi.value = false
+  }
+}
+
+async function visitPreset(target: PresetLocation) {
   const aladin = aladinRef.value
   if (!aladin || status.value !== 'ready') return
 
@@ -549,28 +593,31 @@ async function visitTarget(target: SkyTarget) {
   raInput.value = target.ra.toFixed(6)
   decInput.value = target.dec.toFixed(6)
   drawerOpen.value = true
-  sideTab.value = 'info'
+  sideTab.value = target.category === 'official_test' ? 'stamps' : 'info'
 
   stage.value = 'flying'
   stageHint.value = target.name
 
   surveyId.value = 'esa-dss'
   applySurvey()
+  // Atlas: FOV cómodo para DSS. El “zoom extremo” es Sellos, no el cielo de fondo.
+  const atlasFov = Math.min(FOV_MAX, Math.max(FOV_MIN, Math.max(target.fov_deg, 0.35)))
+  const wide = Math.min(6, Math.max(atlasFov * 4, atlasFov + 0.4))
   aladin.gotoRaDec(target.ra, target.dec)
-  setAladinFoV(aladin, target.fovWide)
-  fovInput.value = target.fovWide
+  setAladinFoV(aladin, wide)
+  fovInput.value = wide
   syncCoords()
 
   await sleep(350)
   if (token !== journeyToken) return
 
-  await animateFoV(target.fovWide, target.fovHd, 1200)
+  await animateFoV(wide, atlasFov, 900)
   if (token !== journeyToken) return
 
   stage.value = 'hd'
-  if (target.id === 'wiseview-demo') sideTab.value = 'stamps'
+  skyHint.value = target.highlight
   await Promise.all([
-    loadObservationsAt(target.ra, target.dec, target.obsRadius),
+    loadObservationsAt(target.ra, target.dec, 90),
     loadStampsAt(target.ra, target.dec, 'epochs'),
   ])
 }
@@ -633,10 +680,10 @@ onUnmounted(() => {
 
     <!-- HUD: una sola franja superior, sin FABs sueltos que choquen -->
     <header class="sky__top">
-      <div class="sky__brand">
+      <div class="sky__brand" :class="{ 'is-pushed': catalogOpen }">
         <p class="sky__kicker">Atlas SPHEREx · {{ stageLabel }}</p>
         <h1 class="sky__title">{{ activeTarget?.name || 'Cielo HD' }}</h1>
-        <p class="sky__skyhint">{{ skyHint }}</p>
+        <p v-if="!catalogOpen" class="sky__skyhint">{{ skyHint }}</p>
       </div>
       <div class="sky__actions">
         <button
@@ -645,7 +692,7 @@ onUnmounted(() => {
           :class="{ 'btn--on': catalogOpen }"
           @click="catalogOpen = !catalogOpen"
         >
-          Destinos
+          Objetivos
         </button>
         <button
           type="button"
@@ -664,20 +711,22 @@ onUnmounted(() => {
 
     <div v-if="status === 'ready' && searchOpen" class="sky__search">
       <label>
-        AR °
+        AR ° <small>(0–360)</small>
         <input
           v-model="raInput"
           inputmode="decimal"
-          placeholder="268.33975"
+          placeholder="133.79"
+          title="Ascensión recta: 0 a 360 grados"
           @keydown.enter.prevent="goToCoords"
         />
       </label>
       <label>
-        Dec °
+        Dec ° <small>(−90…+90)</small>
         <input
           v-model="decInput"
           inputmode="decimal"
-          placeholder="3.58428"
+          placeholder="-8.24"
+          title="Declinación: de −90 (sur) a +90 (norte). 100 no es válido."
           @keydown.enter.prevent="goToCoords"
         />
       </label>
@@ -697,20 +746,35 @@ onUnmounted(() => {
 
     <aside v-if="status === 'ready' && catalogOpen" class="panel panel--left">
       <div class="panel__head">
-        <h2>Destinos</h2>
+        <h2>Objetivos del reto</h2>
         <button type="button" class="panel__x" @click="catalogOpen = false">×</button>
       </div>
       <div class="panel__body">
+        <p class="dest-lead">
+          Un clic → centra (época {{ SPHEREX_EPOCH }}) + SPHEREx + blink.
+        </p>
         <button
-          v-for="t in SKY_TARGETS"
+          v-for="t in officialPresets"
           :key="t.id"
           type="button"
           class="dest"
           :class="{ 'is-on': activeTarget?.id === t.id }"
-          @click="visitTarget(t)"
+          @click="visitPreset(t)"
         >
           <strong>{{ t.name }}</strong>
-          <span v-if="t.aka">{{ t.aka }}</span>
+          <span>{{ presetCue(t) }}</span>
+        </button>
+        <p class="dest-group">Campos de sondeo</p>
+        <button
+          v-for="t in surveyPresets"
+          :key="t.id"
+          type="button"
+          class="dest"
+          :class="{ 'is-on': activeTarget?.id === t.id }"
+          @click="visitPreset(t)"
+        >
+          <strong>{{ t.name }}</strong>
+          <span>{{ t.highlight }}</span>
         </button>
       </div>
     </aside>
@@ -741,8 +805,15 @@ onUnmounted(() => {
       <div v-if="sideTab === 'info'" class="panel__body">
         <template v-if="activeTarget">
           <p class="info-name">{{ activeTarget.name }}</p>
-          <p class="info-coords">{{ formatRaDec(activeTarget.ra, activeTarget.dec) }}</p>
-          <p class="info-text">{{ activeTarget.report }}</p>
+          <p class="info-coords">
+            {{ formatRaDec(activeTarget.ra, activeTarget.dec) }} · época {{ activeTarget.epoch }}
+          </p>
+          <p v-if="activeTarget.catalog_ra != null && activeTarget.catalog_dec != null" class="info-coords">
+            Catálogo {{ activeTarget.catalog_epoch }}:
+            {{ formatRaDec(activeTarget.catalog_ra, activeTarget.catalog_dec) }}
+          </p>
+          <p class="info-text"><strong>{{ activeTarget.highlight }}</strong></p>
+          <p class="info-text">{{ activeTarget.description }}</p>
         </template>
 
         <p v-if="obsLoading" class="info-meta">Consultando IRSA…</p>
@@ -787,14 +858,18 @@ onUnmounted(() => {
       </div>
 
       <div v-else class="panel__body stamps">
+        <p v-if="activeTarget?.category === 'official_test'" class="info-text">
+          <strong>{{ activeTarget.name }}.</strong> {{ activeTarget.highlight }}
+        </p>
         <p class="info-text">
           <template v-if="stampMode === 'epochs'">
-            Blink por <strong>épocas unWISE</strong> (Legacy Survey): mismas coords, años distintos —
-            aquí sí se ve el desplazamiento. Más limpio que WiseView; el atlas HD queda de fondo.
+            Versión didáctica de WiseView: blink entre <strong>épocas unWISE</strong> (NEO2→NEO11).
+            Equivale al sliding window + blink de WiseView, sin 15 sliders. Mismas coords, años
+            distintos → se ve el movimiento. El atlas HD es el contexto.
           </template>
           <template v-else>
-            Bandas PanSTARRS (color/g/r/i/z/y): cambian brillo/color, no posición. Para movimiento,
-            vuelve a Épocas.
+            Bandas ópticas PanSTARRS (como el recorte inferior de WiseView): brillo/color, no
+            movimiento. Para ver desplazamiento, usa Épocas.
           </template>
         </p>
 
@@ -964,6 +1039,13 @@ onUnmounted(() => {
   pointer-events: none;
   max-width: min(48vw, 26rem);
   min-width: 0;
+  transition: margin-left 0.2s ease;
+}
+
+/* Evita choque título ↔ panel Objetivos */
+.sky__brand.is-pushed {
+  margin-left: min(20rem, calc(100vw - 3rem));
+  max-width: min(36vw, 22rem);
 }
 
 .sky__kicker {
@@ -1162,6 +1244,30 @@ onUnmounted(() => {
   background: rgba(232, 196, 120, 0.1);
 }
 
+.dest-lead,
+.dest-group {
+  margin: 0 0 0.75rem;
+  font-size: 0.86rem;
+  line-height: 1.4;
+  color: rgba(255, 255, 255, 0.62);
+}
+
+.dest-lead .ok {
+  color: #9fd4ff;
+}
+
+.dest-lead .warn {
+  color: #fda4af;
+}
+
+.dest-group {
+  margin-top: 1rem;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  font-size: 0.72rem;
+  color: rgba(255, 255, 255, 0.45);
+}
+
 .dest {
   display: grid;
   gap: 0.2rem;
@@ -1169,9 +1275,10 @@ onUnmounted(() => {
   margin-bottom: 0.45rem;
   padding: 0.85rem 0.9rem;
   text-align: left;
-  border: 1px solid rgba(255, 255, 255, 0.1);
+  border: 1px solid rgba(255, 255, 255, 0.14);
   background: rgba(255, 255, 255, 0.03);
   color: #fff;
+  cursor: pointer;
 }
 
 .dest strong {
@@ -1180,13 +1287,23 @@ onUnmounted(() => {
 
 .dest span {
   font-size: 0.85rem;
-  color: rgba(255, 233, 184, 0.8);
+  color: rgba(255, 255, 255, 0.55);
 }
 
-.dest.is-on,
 .dest:hover {
-  border-color: rgba(232, 196, 120, 0.55);
-  background: rgba(232, 196, 120, 0.1);
+  border-color: rgba(255, 255, 255, 0.28);
+  background: rgba(255, 255, 255, 0.06);
+}
+
+/* Solo el objetivo activo brilla */
+.dest.is-on {
+  border-color: rgba(232, 196, 120, 0.85);
+  background: rgba(232, 196, 120, 0.16);
+  box-shadow: inset 3px 0 0 #e8c478;
+}
+
+.dest.is-on span {
+  color: #ffe9b8;
 }
 
 .info-name {
@@ -1480,8 +1597,10 @@ onUnmounted(() => {
     align-items: stretch;
   }
 
-  .sky__brand {
+  .sky__brand,
+  .sky__brand.is-pushed {
     max-width: none;
+    margin-left: 0;
   }
 
   .sky__actions {
