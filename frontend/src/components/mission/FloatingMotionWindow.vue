@@ -37,53 +37,55 @@ onUnmounted(() => window.removeEventListener('keydown', onKey))
 
 <template>
   <aside v-show="open" class="float" data-tour="interpret" aria-label="Blink SPHEREx">
-      <header class="float__bar">
-        <div class="float__drag">
-          <p class="float__kicker">Blink</p>
-          <h2>{{ title || 'Movimiento' }}</h2>
-        </div>
-        <button
-          type="button"
-          class="float__close"
-          aria-label="Cerrar blink"
-          @pointerdown.stop.prevent="closeFloat"
-          @click.stop.prevent="closeFloat"
-        >
-          Cerrar
-        </button>
-      </header>
-
-      <div class="float__body">
-        <SpherexPlayer
-          v-if="open"
-          :note="note"
-          :object-type="objectType"
-          :ra="ra"
-          :dec="dec"
-          :radius="radius"
-          :cutout-size="cutoutSize"
-          @focus-sky="emit('focusSky', $event)"
-        />
+    <header class="float__bar">
+      <div class="float__drag">
+        <p class="float__kicker">Blink · satélite</p>
+        <h2>{{ title || 'Movimiento' }}</h2>
       </div>
+      <button
+        type="button"
+        class="float__close"
+        aria-label="Cerrar blink"
+        @pointerdown.stop.prevent="closeFloat"
+        @click.stop.prevent="closeFloat"
+      >
+        Cerrar
+      </button>
+    </header>
+
+    <div class="float__body">
+      <SpherexPlayer
+        v-if="open"
+        :note="note"
+        :object-type="objectType"
+        :ra="ra"
+        :dec="dec"
+        :radius="radius"
+        :cutout-size="cutoutSize"
+        @focus-sky="emit('focusSky', $event)"
+      />
+    </div>
   </aside>
 </template>
 
 <style scoped>
+/* Tarjeta flotante: el atlas sigue a pantalla completa (sin partir al 50%). */
 .float {
   position: absolute;
-  top: 4.6rem;
-  right: 0;
-  bottom: 4.4rem;
+  right: 0.65rem;
+  bottom: 4.35rem;
+  top: auto;
+  left: auto;
   z-index: 6;
-  width: 50%;
-  max-height: none;
+  width: min(48rem, calc(100vw - 1.2rem));
+  height: min(88vh, 54rem);
+  max-height: calc(100vh - 8.6rem);
   display: flex;
   flex-direction: column;
-  border: 0;
-  border-left: 1px solid rgba(232, 196, 120, 0.35);
-  border-radius: 0;
+  border: 1px solid rgba(232, 196, 120, 0.42);
+  border-radius: 0.85rem;
   background: rgba(5, 7, 12, 0.96);
-  box-shadow: none;
+  box-shadow: 0 18px 48px rgba(0, 0, 0, 0.55);
   overflow: hidden;
   pointer-events: auto;
   container: blink / size;
@@ -96,6 +98,7 @@ onUnmounted(() => window.removeEventListener('keydown', onKey))
   gap: 0.75rem;
   padding: 0.55rem 0.7rem;
   border-bottom: 1px solid rgba(255, 255, 255, 0.12);
+  flex: none;
 }
 
 .float__drag {
@@ -164,12 +167,11 @@ onUnmounted(() => window.removeEventListener('keydown', onKey))
 
 @media (max-width: 800px) {
   .float {
-    top: auto;
-    left: 0;
-    width: 100%;
-    height: 50%;
-    border-left: 0;
-    border-top: 1px solid rgba(232, 196, 120, 0.35);
+    right: 0.5rem;
+    left: 0.5rem;
+    width: auto;
+    bottom: 4.2rem;
+    height: min(62vh, 34rem);
   }
 }
 </style>
