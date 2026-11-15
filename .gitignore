@@ -33,3 +33,4 @@ Thumbs.db
 
 # --- Local data / caches ---
 backend/data/
+backend/.cache/
