@@ -155,3 +155,24 @@ export const PRESET_FALLBACK: PresetLocation[] = [
     highlight: 'Campo denso para el atlas, no uno de los 5 objetos del reto.',
   },
 ]
+
+/** Alias aceptados en `?target=` (formas cortas o sin guion bajo). */
+const PRESET_ALIASES: Record<string, string> = {
+  wise0855: 'wise_0855',
+  'wise-0855': 'wise_0855',
+  epsindib: 'eps_indi_b',
+  'eps-indi-b': 'eps_indi_b',
+  rwaur: 'rw_aur',
+  rdra: 'r_dra',
+}
+
+/** Busca un preset por id o alias (sin distinguir mayúsculas). */
+export function presetById(
+  id: string | null | undefined,
+  list: readonly PresetLocation[] = PRESET_FALLBACK,
+): PresetLocation | undefined {
+  if (!id) return undefined
+  const key = id.trim().toLowerCase()
+  const canonical = PRESET_ALIASES[key] ?? key
+  return list.find((p) => p.id === canonical)
+}
