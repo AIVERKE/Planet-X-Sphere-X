@@ -1,194 +1,210 @@
-# Planet-X Sphere-X
+# SCOUT · SPHEREx
 
-Monorepo con:
+Monorepo for the NASA Space Apps project **SCOUT · SPHEREx**:
 
-- **backend/** — API en Python con **FastAPI** + **PostgreSQL** (SQLAlchemy 2.x, sync, driver `psycopg2`).
-- **frontend/** — aplicación **Vue 3** con **Vite** (JavaScript, npm).
+- **backend/** — Python **FastAPI** API (IRSA / SPHEREx queries, presets, PNG cutouts). PostgreSQL via SQLAlchemy 2.x is optional.
+- **frontend/** — **Vue 3** + **Vite** + TypeScript immersive explorer and sky atlas.
 
-## Requisitos
+Detailed backend install (Git Bash, PowerShell, macOS/Linux): see [`backend/README.md`](backend/README.md).
 
-| Herramienta | Versión |
-|-------------|---------|
-| Python      | 3.11+   |
-| Node.js     | 20.19+ LTS (o 22.12+) |
-| npm         | 10+     |
-| PostgreSQL  | 14+ (local o remoto) |
-| Git         | cualquiera reciente |
+---
 
-> Todos los comandos están pensados para **Windows PowerShell**, ejecutados desde la raíz del repositorio.
+## Requirements
 
-## Estructura
+| Tool | Version |
+|------|---------|
+| Python | 3.11+ (3.13 recommended on Windows) |
+| Node.js | 20.19+ LTS (or 22.12+) |
+| npm | 10+ |
+| PostgreSQL | 14+ (optional; only if you use DB-backed endpoints) |
+| Git | Recent |
+
+---
+
+## Repository layout
 
 ```
 Planet-X-Sphere-X/
 ├── backend/
-│   ├── main.py            # App FastAPI, CORS, /health y registro de routers
-│   ├── database.py        # Engine + SessionLocal (SQLAlchemy 2.x) desde DATABASE_URL
-│   ├── routers/           # Endpoints (montados bajo el prefijo /api)
-│   ├── models/            # Modelos ORM (heredan de database.Base)
-│   ├── schemas/           # Esquemas Pydantic
+│   ├── main.py            # FastAPI app, CORS, /health, routers
+│   ├── database.py        # SQLAlchemy engine / SessionLocal from DATABASE_URL
+│   ├── routers/           # Endpoints under /api
+│   ├── models/            # ORM models
+│   ├── schemas/           # Pydantic schemas
 │   ├── requirements.txt
+│   ├── README.md          # Full backend setup (English)
 │   └── .env.example
 ├── frontend/
 │   ├── src/
 │   ├── index.html
 │   ├── package.json
 │   └── .env.example
-└── README.md
+└── README.md              # This file
 ```
 
-## Backend
+---
 
-### 1. Base de datos PostgreSQL
+## Quick start
 
-Necesitas un servidor PostgreSQL accesible. Crea la base de datos (ejemplo con `psql`):
+### Backend (API on port 8000)
 
-```powershell
-psql -U postgres -c "CREATE DATABASE planet_x;"
+From the repo root, using **Git Bash** (Cursor default on Windows):
+
+```bash
+cd backend
+py -3.13 -m venv .venv
+./.venv/Scripts/python.exe -m pip install --upgrade pip
+./.venv/Scripts/python.exe -m pip install -r requirements.txt
+cp .env.example .env
+./.venv/Scripts/python.exe -m uvicorn main:app --reload --host 127.0.0.1 --port 8000
 ```
 
-En este punto **no** se crean tablas ni hay migraciones. La conexión es perezosa: la API arranca aunque PostgreSQL no esté disponible; solo fallará cuando un endpoint use la base de datos.
-
-### 2. Entorno y dependencias
+**PowerShell** equivalent:
 
 ```powershell
 cd backend
-python -m venv .venv
-.\.venv\Scripts\Activate.ps1
-pip install -r requirements.txt
-```
-
-> Si PowerShell bloquea la activación del entorno, ejecuta una vez:
-> `Set-ExecutionPolicy -Scope CurrentUser -ExecutionPolicy RemoteSigned`
-
-### 3. Variables de entorno
-
-```powershell
+py -3.13 -m venv .venv
+.\.venv\Scripts\python.exe -m pip install --upgrade pip
+.\.venv\Scripts\python.exe -m pip install -r requirements.txt
 Copy-Item .env.example .env
+.\.venv\Scripts\python.exe -m uvicorn main:app --reload --host 127.0.0.1 --port 8000
 ```
 
-Edita `backend/.env` con tus credenciales:
+- Health: http://127.0.0.1:8000/health → `{"status":"ok"}`
+- Swagger: http://127.0.0.1:8000/docs
+
+> Do **not** use `npm` inside `backend/`.  
+> Full notes (venv activation, CORS, troubleshooting): [`backend/README.md`](backend/README.md).
+
+#### Optional PostgreSQL
+
+```bash
+psql -U postgres -c "CREATE DATABASE planet_x;"
+```
+
+The API starts even if Postgres is down. Connection is lazy: only endpoints that hit the DB will fail without it. Set `DATABASE_URL` in `backend/.env` when needed.
+
+#### Environment (`backend/.env`)
 
 ```env
 DATABASE_URL=postgresql+psycopg2://user:password@localhost:5432/planet_x
-CORS_ORIGINS=http://localhost:5173
+CORS_ORIGINS=http://localhost:5173,http://127.0.0.1:5173
 ```
 
-### 4. Arrancar
+### Frontend (UI on port 5173)
 
-```powershell
-uvicorn main:app --reload
+In a **second** terminal:
+
+```bash
+cd frontend
+cp .env.example .env   # PowerShell: Copy-Item .env.example .env
+npm install
+npm run dev
 ```
 
-- Salud: <http://localhost:8000/health> → `{"status":"ok"}`
-- Swagger UI: <http://localhost:8000/docs>
-- Endpoint de ejemplo: <http://localhost:8000/api/example>
-- Observaciones SPHEREx: <http://localhost:8000/api/observations?ra=270&dec=66.56&radius=10>
+Open http://localhost:5173.
 
-### 5. Endpoint de observaciones (`GET /api/observations`)
+```env
+VITE_API_URL=http://localhost:8000
+```
 
-Consulta el servicio SIA v2 de IRSA (`Irsa.query_sia`) y devuelve los metadatos ObsCore de las imágenes que cubren una posición, filtrados por época. **No descarga FITS**: cada registro incluye `access_url` (imagen completa) y `cutout_url` (recorte en el servidor de IRSA centrado en la posición pedida).
+Keep both processes running so the atlas can call the API (CORS must allow the Vite origin).
 
-| Parámetro       | Tipo  | Por defecto   | Descripción |
-|-----------------|-------|---------------|-------------|
-| `ra`            | float | — (obligatorio) | Ascensión recta, grados ICRS (`0 ≤ ra < 360`) |
-| `dec`           | float | — (obligatorio) | Declinación, grados ICRS (`-90 ≤ dec ≤ 90`) |
-| `radius`        | float | `1.0`         | Radio de búsqueda en **segundos de arco** (`0 < radius ≤ 3600`) |
-| `t_start`       | float | `0.0`         | Límite inferior de `t_min`, en **MJD** |
-| `t_end`         | float | `99999.0`     | Límite superior de `t_max`, en **MJD** |
-| `collection`    | str   | `spherex_dr1` | Colección SIA de IRSA (p. ej. `spherex_dr1_deep`, `spherex_qr3`) |
-| `cutout_size`   | float | `0.05`        | Lado del recorte en grados (`0 < size ≤ 1`) |
-| `group_by_band` | bool  | `false`       | Agrupar por `energy_bandpassname` (`SPHEREx-D1` … `SPHEREx-D6`) |
+---
 
-Una imagen se incluye solo si su exposición completa cae dentro de la ventana (`t_min ≥ t_start` y `t_max ≤ t_end`). Los resultados se ordenan por `t_min`.
+## Backend API overview
 
-Respuesta (`group_by_band=false`):
+### Observations — `GET /api/observations`
+
+Queries IRSA SIA v2 (`Irsa.query_sia`) and returns ObsCore metadata for images covering a sky position, filtered by epoch. **Does not download FITS**: each row includes `access_url` (full image) and `cutout_url` (IRSA cutout centered on the request).
+
+| Parameter | Type | Default | Description |
+|-----------|------|---------|-------------|
+| `ra` | float | required | Right ascension, ICRS degrees (`0 ≤ ra < 360`) |
+| `dec` | float | required | Declination, ICRS degrees (`-90 ≤ dec ≤ 90`) |
+| `radius` | float | `1.0` | Search radius in **arcseconds** (`0 < radius ≤ 3600`) |
+| `t_start` | float | `0.0` | Lower bound on `t_min` (**MJD**) |
+| `t_end` | float | `99999.0` | Upper bound on `t_max` (**MJD**) |
+| `collection` | str | `spherex_dr1` | IRSA SIA collection (e.g. `spherex_dr1_deep`, `spherex_qr3`) |
+| `cutout_size` | float | `0.05` | Cutout side length in degrees (`0 < size ≤ 1`) |
+| `group_by_band` | bool | `false` | Group by `energy_bandpassname` (`SPHEREx-D1` … `SPHEREx-D6`) |
+
+An image is kept only if its full exposure falls in the window (`t_min ≥ t_start` and `t_max ≤ t_end`). Results are sorted by `t_min`.
+
+Example response (`group_by_band=false`):
 
 ```json
 {
   "query": {"ra": 270.0, "dec": 66.56, "radius": 10.0, "t_start": 0.0, "t_end": 99999.0, "collection": "spherex_dr1", "cutout_size": 0.05},
   "count": 439,
   "observations": [
-    {"obs_id": "2025W17_4B_0091_1", "energy_bandpassname": "SPHEREx-D5", "t_min": 60790.35, "t_max": 60790.35, "access_url": "https://irsa.ipac.caltech.edu/…fits", "cutout_url": "https://irsa.ipac.caltech.edu/…fits?center=270.0,66.56&size=0.05", "...": "resto de columnas ObsCore"}
+    {"obs_id": "2025W17_4B_0091_1", "energy_bandpassname": "SPHEREx-D5", "t_min": 60790.35, "t_max": 60790.35, "access_url": "https://irsa.ipac.caltech.edu/…fits", "cutout_url": "https://irsa.ipac.caltech.edu/…fits?center=270.0,66.56&size=0.05"}
   ]
 }
 ```
 
-Con `group_by_band=true` se devuelve `bands: {"SPHEREx-D1": [...], ...}` en lugar de `observations`. Los valores ausentes (NaN/enmascarados) llegan como `null`.
+With `group_by_band=true`, the payload uses `bands: {"SPHEREx-D1": [...], ...}` instead of `observations`. Missing values become `null`.
 
-Códigos de error: `404` si no hay imágenes en la posición o ninguna en la ventana temporal; `422` si los parámetros no son válidos (incluido `t_start > t_end`); `503` si IRSA no responde o falla.
+Errors: `404` no images / none in the time window; `422` invalid params (including `t_start > t_end`); `503` IRSA unreachable.
 
-`GET /api/observations` sigue sin descargar píxeles. El reproductor usa los dos endpoints siguientes.
+Example:
 
-### 6. Fotogramas y PNG (`GET /api/observations/frames`, `GET /api/cutouts/png`)
+```text
+http://127.0.0.1:8000/api/observations?ra=270&dec=66.56&radius=10
+```
 
-`/api/observations/frames` repite la consulta SIA y devuelve las épocas de **un solo detector**, ordenadas por `t_min`. Si no se pasa `band`, elige el detector con más épocas (empate: D1 antes que D2). Hay un tope de 16 épocas repartidas en el tiempo (`matched` es el total del detector, `returned` las que entran en la respuesta).
+### Frames & PNG — `GET /api/observations/frames`, `GET /api/cutouts/png`
 
-Cada fotograma trae `obs_id`, `t_min`, `t_max`, `band` (`D1`…`D6`) y `png_url`, una ruta relativa `/api/cutouts/png?...`. Esa ruta ya incluye `vmin` y `vmax`: el backend reproyecta los recortes a una grilla común (norte arriba, centrada en el RA/Dec pedido, 192×192) y calcula el zscale **una vez** sobre la mediana del conjunto.
+`/api/observations/frames` repeats the SIA query and returns epochs for **one detector**, sorted by `t_min`. If `band` is omitted, it picks the detector with the most epochs (tie-break: D1 before D2). At most 16 epochs are spread over time (`matched` = detector total, `returned` = in the response).
 
-`/api/cutouts/png` descarga el FITS desde IRSA, lee solo la extensión `IMAGE` (el WCS espectral `W` no se usa para alinear) y responde `image/png`. El navegador no recibe el FITS.
+Each frame includes `obs_id`, `t_min`, `t_max`, `band` (`D1`…`D6`), and `png_url` pointing at `/api/cutouts/png?...`. That URL already carries shared `vmin` / `vmax`: the backend reprojects cutouts onto a common grid (north up, centered on the requested RA/Dec, 192×192) and computes zscale **once** from the stack median.
 
-| Parámetro | En `frames` | En `png` | Notas |
+`/api/cutouts/png` downloads the FITS from IRSA, reads the `IMAGE` extension, and returns `image/png`. The browser never receives FITS bytes.
+
+| Parameter | In `frames` | In `png` | Notes |
 |-----------|-------------|----------|--------|
-| `ra`, `dec`, `radius`, `t_start`, `t_end`, `collection`, `cutout_size` | sí | `ra`, `dec`, `size` | Mismos límites que `/api/observations`. `size` es el lado en grados. |
-| `band` | opcional | — | `D1`…`D6` o `SPHEREx-D1`…`D6` |
-| `url` | — | obligatorio | Tiene que ser `https://irsa.ipac.caltech.edu/...`. Cualquier otro host, `http` o un redirect fuera de IRSA responde **400** y no se llama a la red. |
-| `vmin`, `vmax` | en la respuesta | opcionales | Escala compartida. Si faltan, el PNG usa el zscale de ese cuadro solo. |
+| `ra`, `dec`, `radius`, `t_start`, `t_end`, `collection`, `cutout_size` | yes | `ra`, `dec`, `size` | Same limits as `/api/observations`. `size` is side length in degrees. |
+| `band` | optional | — | `D1`…`D6` or `SPHEREx-D1`…`D6` |
+| `url` | — | required | Must be `https://irsa.ipac.caltech.edu/...`. Other hosts / `http` / off-IRSA redirects → **400**. |
+| `vmin`, `vmax` | in response | optional | Shared stretch. If missing, PNG uses per-frame zscale. |
 
-Los FITS descargados y los PNG quedan en `backend/.cache/cutouts/` (no se versiona). La segunda reproducción del mismo objetivo no vuelve a pedir el archivo a IRSA.
+Downloaded FITS and PNGs are cached under `backend/.cache/cutouts/` (not versioned).
 
-Errores: `400` URL fuera de IRSA; `404` sin imágenes o sin épocas en ese detector; `422` parámetros inválidos o FITS sin imagen científica; `503` si IRSA no responde.
+Errors: `400` non-IRSA URL; `404` no images / no epochs for that detector; `422` bad params or FITS without science image; `503` IRSA down.
 
-### Tests
+### Backend tests
 
-```powershell
-pip install -r requirements-dev.txt
-pytest -q
+```bash
+cd backend
+./.venv/Scripts/python.exe -m pip install -r requirements-dev.txt
+./.venv/Scripts/python.exe -m pytest -q
 ```
 
-Los tests simulan `Irsa.query_sia` y las descargas de cutouts, por lo que no necesitan red.
+Tests mock `Irsa.query_sia` and cutout downloads (no network required).
 
-## Frontend
+---
 
-En otra terminal, desde la raíz del repositorio:
+## Frontend atlas URL & embed
 
-```powershell
-cd frontend
-Copy-Item .env.example .env
-npm install
-npm run dev
-```
+Mission atlas route: `/mision` (alias `/mission`). View state lives in the query string: opening a link centers the sky; pan/zoom updates the URL with `replace` (no history spam); F5 restores the view.
 
-Abre <http://localhost:5173>. La página llama a `GET {VITE_API_URL}/health` y muestra el estado del backend (sirve también para comprobar que CORS funciona).
+| Parameter | Format | Description |
+|-----------|--------|-------------|
+| `ra` | degrees `0–360` or sexagesimal hours: `08h55m10.8s`, `08:55:10.8` | Right ascension (ICRS). Always paired with `dec`. |
+| `dec` | degrees `−90–90` or sexagesimal: `-7d14m42.5s`, `-07:14:42.5` | Declination (ICRS). |
+| `fov` | degrees | Field of view, clamped roughly to `0.08–40`. |
+| `target` | preset id | e.g. `barnard`, `eps_indi_b`, `wise0855`, `rw_aur`, `r_dra`, plus atlas fields (`orion`, `lagoon`, …). |
+| `embed` | `1` | Compact iframe mode: atlas + epoch player + “Open in SCOUT” link. |
 
-Variables (`frontend/.env`):
+Initial position priority:
 
-```env
-VITE_API_URL=http://localhost:8000
-```
+1. `ra` + `dec` from the URL  
+2. `target`  
+3. Default destination  
 
-### Enlaces, estado en la URL y embed (`/mision?ra=&dec=&fov=`)
+Invalid params are ignored (defaults + non-blocking notice). The URL is rewritten in canonical decimal form.
 
-El atlas de la misión (`/mision`, alias `/mission`) guarda la vista en la URL: al abrir un enlace se centra en esa posición, al moverse o hacer zoom la URL se actualiza sola (con `replace`, sin llenar el historial) y al recargar (F5) se conserva la vista.
-
-| Parámetro | Formato | Descripción |
-|-----------|---------|-------------|
-| `ra`      | grados `0–360` o sexagesimal en horas: `08h55m10.8s`, `08:55:10.8`, `08 55 10.8` | Ascensión recta (ICRS). Va siempre en par con `dec`. |
-| `dec`     | grados `−90–90` o sexagesimal: `-7d14m42.5s`, `-07:14:42.5`, `-7°14′42.5″` | Declinación (ICRS). |
-| `fov`     | grados | Campo de visión. Se acota a `0.08–40`. |
-| `target`  | id de preset | `barnard`, `eps_indi_b`, `wise0855`, `rw_aur`, `r_dra` y los destinos del atlas (`orion`, `lagoon`, `eagle`, `carina`, `helix`, `crab`, `rho-oph`, `wiseview-demo`, `spherex-l2-demo`). |
-| `embed`   | `1` | Modo compacto para `<iframe>`: solo el atlas, el reproductor de épocas y el enlace "Abrir en Planet-X". |
-| `band`, `play` | — | **Pendiente (SPX-001)**: llegarán con el reproductor de bandas D1–D6. |
-
-La posición inicial se resuelve con esta prioridad:
-
-1. `ra` + `dec` de la URL.
-2. `target`.
-3. El destino por defecto.
-
-Si vienen `ra`/`dec` y `target`, la posición sale de las coordenadas y el panel de información, del preset. Los parámetros inválidos (fuera de rango, mal formados o un `target` inexistente) se ignoran: se usa el valor por defecto y aparece un aviso no bloqueante. La URL se reescribe en forma canónica, en decimal y con RA/Dec a 5 decimales y FOV a 3.
-
-Ejemplos:
+Examples:
 
 ```text
 /mision?ra=133.7951&dec=-7.2451&fov=0.3
@@ -197,32 +213,31 @@ Ejemplos:
 /mision?target=barnard&embed=1
 ```
 
-Al elegir un destino en "Destinos" se crea una entrada en el historial, así que Atrás/Adelante salta entre destinos sin recargar el atlas. Editar la URL a mano y pulsar Enter recarga la página (lo hace el navegador), y la vista se restaura desde la URL.
-
-El botón **Compartir** copia el enlace de la vista actual y genera el código para embeber:
+**Share** copies the current link and an embed snippet:
 
 ```html
-<iframe src="https://<tu-dominio>/mision?target=wise0855&amp;embed=1"
+<iframe src="https://<your-domain>/mision?target=wise0855&amp;embed=1"
         width="800" height="500" style="border:0" loading="lazy"
-        allow="clipboard-write" title="Planet-X · Atlas SPHEREx"></iframe>
+        allow="clipboard-write" title="SCOUT · SPHEREx Atlas"></iframe>
 ```
 
-> Las posiciones de los presets oficiales son estáticas: J2000 de SIMBAD, salvo WISE 0855, que usa la época de su designación (~2014). La corrección por movimiento propio llegará con SPX-002.
->
-> Para que el embed funcione en producción, el servidor no debe enviar `X-Frame-Options: DENY` ni una `Content-Security-Policy` con `frame-ancestors` restrictivo.
+> Official preset positions are static (SIMBAD J2000; WISE 0855 uses its designation epoch ~2014).  
+> For embeds in production, avoid `X-Frame-Options: DENY` and restrictive `frame-ancestors` CSP.
 
-### Tests del frontend
+### Frontend tests
 
-```powershell
+```bash
 cd frontend
 npm run test
 ```
 
-Usa [Vitest](https://vitest.dev/) y cubre el parseo y la validación de coordenadas (`parseCoord`, `readFromQuery`) y la escritura en la URL.
+Vitest covers coordinate parsing/validation (`parseCoord`, `readFromQuery`) and URL writing.
 
-## Convenciones
+---
 
-- Código en inglés; documentación en español.
-- Los routers de negocio se montan bajo el prefijo `/api`.
-- `.env` nunca se versiona; solo `.env.example`.
-- Mensajes de commit siguiendo [Conventional Commits](https://www.conventionalcommits.org/) (`feat:`, `fix:`, `chore:`…).
+## Conventions
+
+- Code and documentation in **English**.
+- Business routers mount under `/api`.
+- Never commit `.env`; only `.env.example`.
+- Commits follow [Conventional Commits](https://www.conventionalcommits.org/) (`feat:`, `fix:`, `chore:`, …).

@@ -1,41 +1,48 @@
-# Frontend MOF (Vue 3)
+# Frontend — SCOUT · SPHEREx (Vue 3)
 
-Aplicación **solo frontend** con Vue 3, Vite, TypeScript, Vue Router, Pinia y Vuetify, alineada al sistema de diseño MOF.
+Vue 3 + Vite + TypeScript app: immersive explorer, catalog, About, and SPHEREx sky atlas.
 
-## Arranque
+The API lives in `backend/` (see [`../backend/README.md`](../backend/README.md) and the root [`../README.md`](../README.md)).
+
+## Start
 
 ```bash
 cd frontend
+cp .env.example .env   # PowerShell: Copy-Item .env.example .env
 npm install
 npm run dev
 ```
 
-## Estructura
+Open http://localhost:5173. Set `VITE_API_URL=http://localhost:8000` in `.env` so the atlas can reach the API.
+
+## Scripts
+
+| Command | Purpose |
+|---------|---------|
+| `npm run dev` | Dev server |
+| `npm run build` | Production build |
+| `npm run test` | Vitest |
+
+## Layout (high level)
 
 ```
 src/
-  assets/          # imágenes, iconos, fuentes
-  components/
-    common/        # piezas reutilizables de dominio
-    layout/        # header, sidebar, shells
-    ui/            # botones, chips y controles MOF
-  composables/     # lógica reactiva reutilizable
-  config/          # designSystem.ts (tokens maestros)
-  layouts/         # layouts de página
-  plugins/         # vuetify, pinia, registro
-  router/          # rutas
-  services/        # clientes HTTP / integraciones
+  assets/          # images, fonts, audio
+  components/      # explorer, mission, about, common UI
+  composables/     # shared reactive logic
+  data/            # planets, chapters, catalog, presets copy
+  i18n/            # EN / ES messages (default: English)
+  router/          # routes
+  services/        # HTTP / Aladin helpers
   stores/          # Pinia
-  types/           # tipos compartidos
-  utils/           # helpers puros
-  views/           # páginas / pantallas
+  three/           # WebGL scene modules
+  views/           # pages
   App.vue
   main.ts
-  style.css        # capas globales y clases semánticas MOF
 ```
 
-## Diseño MOF
+## Notes
 
-- Tokens: `src/config/designSystem.ts`
-- Clases semánticas: `src/style.css` (`btn-*`, `chip-*`)
-- Tema Vuetify: `src/plugins/vuetify.ts`
+- Default UI language is **English**; use the language toggle for Spanish.
+- Atlas route: `/mision` (alias `/mission`).
+- Branding: **SCOUT · SPHEREx**.
