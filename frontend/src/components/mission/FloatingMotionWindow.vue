@@ -36,7 +36,7 @@ onUnmounted(() => window.removeEventListener('keydown', onKey))
 </script>
 
 <template>
-  <aside v-show="open" class="float" aria-label="Blink SPHEREx">
+  <aside v-show="open" class="float" data-tour="interpret" aria-label="Blink SPHEREx">
       <header class="float__bar">
         <div class="float__drag">
           <p class="float__kicker">Blink</p>

@@ -19,10 +19,17 @@ import {
   type ObservationsResponse,
 } from '@/services/http'
 import FloatingMotionWindow from '@/components/mission/FloatingMotionWindow.vue'
+import MissionGuidePanel from '@/components/mission/MissionGuidePanel.vue'
+import MissionOnboardingTour from '@/components/mission/MissionOnboardingTour.vue'
 import SpherexDetailWindow, {
   type DetailObs,
 } from '@/components/mission/SpherexDetailWindow.vue'
 import { useFramePlayer } from '@/composables/useFramePlayer'
+import {
+  useMissionOnboarding,
+  type MissionTourStepId,
+} from '@/composables/useMissionOnboarding'
+import { useI18n } from '@/composables/useI18n'
 import {
   fetchPanstarrsStamps,
   panstarrsPortalUrl,
@@ -163,6 +170,78 @@ const {
 } = useFramePlayer(computed(() => stamps.value.length))
 
 const isEmbed = computed(() => readFromQuery(route.query).state.embed)
+const { m: i18nMessages } = useI18n()
+const onboardingCopy = computed(() => i18nMessages.value.mission.onboarding)
+const tourStepCopy = computed(() => onboardingCopy.value.steps[onboardingStepId.value])
+const tourProgressLabel = computed(() =>
+  onboardingCopy.value.progress
+    .replace('{current}', String(onboardingStepIndex.value + 1))
+    .replace('{total}', String(onboardingStepCount)),
+)
+
+async function prepareOnboardingStep(id: MissionTourStepId) {
+  searchOpen.value = false
+  shareOpen.value = false
+  detailOpen.value = false
+
+  if (id === 'atlas') {
+    catalogOpen.value = false
+    drawerOpen.value = false
+    spherexFloatOpen.value = false
+    return
+  }
+  if (id === 'targets') {
+    catalogOpen.value = true
+    drawerOpen.value = false
+    spherexFloatOpen.value = false
+    return
+  }
+  if (id === 'data') {
+    // Solo el panel Datos: evita apilar catálogo + drawer y sacar la guía del viewport.
+    catalogOpen.value = false
+    drawerOpen.value = true
+    sideTab.value = 'info'
+    spherexFloatOpen.value = false
+    return
+  }
+  if (id === 'motion') {
+    catalogOpen.value = false
+    drawerOpen.value = true
+    sideTab.value = 'stamps'
+    motionMode.value = 'spherex'
+    spherexFloatOpen.value = false
+    return
+  }
+  // interpret — float a la derecha; la tarjeta del tour se coloca al lado.
+  catalogOpen.value = false
+  drawerOpen.value = false
+  sideTab.value = 'stamps'
+  motionMode.value = 'spherex'
+  openSpherexFloat()
+}
+
+const {
+  tourActive,
+  guideOpen,
+  stepIndex: onboardingStepIndex,
+  stepId: onboardingStepId,
+  stepCount: onboardingStepCount,
+  isFirst: onboardingIsFirst,
+  isLast: onboardingIsLast,
+  targetRect: onboardingTargetRect,
+  startTour,
+  skipTour,
+  nextStep: onboardingNext,
+  prevStep: onboardingPrev,
+  closeGuide,
+  toggleGuide,
+  tryAutoStart,
+  remountMeasure,
+} = useMissionOnboarding({
+  isEmbed,
+  prepareStep: prepareOnboardingStep,
+})
+
 const urlNotice = ref<string | null>(null)
 const shareOpen = ref(false)
 const copyFeedback = ref<CopyFeedback | null>(null)
@@ -1250,6 +1329,17 @@ watch(spherexFloatOpen, () => {
   })
 })
 
+watch(
+  () => status.value === 'ready' && !isEmbed.value,
+  (ready) => {
+    if (ready) void tryAutoStart()
+  },
+)
+
+watch(guideOpen, (open) => {
+  if (open) spherexFloatOpen.value = false
+})
+
 onMounted(() => {
   document.documentElement.classList.add('is-explorer')
   document.documentElement.classList.remove('is-look-locked')
@@ -1289,7 +1379,11 @@ onUnmounted(() => {
     />
     <!-- HUD: una sola franja superior, sin FABs sueltos que choquen -->
     <header v-if="!isEmbed" class="sky__top">
-      <div class="sky__brand" :class="{ 'is-pushed': catalogOpen }">
+      <div
+        class="sky__brand"
+        data-tour="atlas"
+        :class="{ 'is-pushed': catalogOpen }"
+      >
         <p class="sky__kicker">Atlas SPHEREx · {{ stageLabel }}</p>
         <h1 class="sky__title">{{ activeTarget?.name || 'Cielo HD' }}</h1>
         <p v-if="!catalogOpen" class="sky__skyhint">{{ skyHint }}</p>
@@ -1327,6 +1421,15 @@ onUnmounted(() => {
           @click="toggleShare"
         >
           Compartir
+        </button>
+        <button
+          type="button"
+          class="btn"
+          :class="{ 'btn--on': guideOpen || tourActive }"
+          :title="onboardingCopy.openGuide"
+          @click="toggleGuide"
+        >
+          {{ onboardingCopy.openGuide }}
         </button>
         <button
           type="button"
@@ -1406,8 +1509,11 @@ onUnmounted(() => {
       <button type="button" class="btn btn--ghost" @click="shareOpen = false">Cerrar</button>
     </div>
 
-    <aside v-if="status === 'ready' && catalogOpen && !isEmbed" class="panel panel--left panel--catalog">
-      <div class="panel__head">
+    <aside
+      v-if="status === 'ready' && catalogOpen && !isEmbed"
+      class="panel panel--left panel--catalog"
+    >
+      <div class="panel__head" data-tour="targets">
         <h2>Objetivos</h2>
         <button type="button" class="panel__x" @click="catalogOpen = false">Cerrar</button>
       </div>
@@ -1440,8 +1546,14 @@ onUnmounted(() => {
       </div>
     </aside>
 
-    <aside v-if="status === 'ready' && drawerOpen && !isEmbed" class="panel panel--right">
-      <div class="panel__head">
+    <aside
+      v-if="status === 'ready' && drawerOpen && !isEmbed"
+      class="panel panel--right"
+    >
+      <div
+        class="panel__head"
+        :data-tour="sideTab === 'info' ? 'data' : undefined"
+      >
         <div class="tabs">
           <button
             type="button"
@@ -1520,7 +1632,7 @@ onUnmounted(() => {
       </div>
 
       <div v-else class="panel__body stamps">
-        <div class="motion-head">
+        <div class="motion-head" data-tour="motion">
           <p class="motion-head__name" :title="activeTarget?.highlight || ''">
             {{ activeTarget?.name || 'Movimiento' }}
           </p>
@@ -1726,6 +1838,42 @@ onUnmounted(() => {
         <strong>{{ zoomLabel }}</strong>
       </div>
     </footer>
+
+    <MissionGuidePanel
+      v-if="!isEmbed"
+      :open="guideOpen"
+      :title="onboardingCopy.guideTitle"
+      :lead="onboardingCopy.guideLead"
+      :sections="onboardingCopy.guideSections"
+      :glossary-title="onboardingCopy.glossaryTitle"
+      :terms="onboardingCopy.terms"
+      :restart-label="onboardingCopy.guideRestart"
+      :close-label="onboardingCopy.guideClose"
+      @close="closeGuide"
+      @restart="startTour(0)"
+    />
+
+    <MissionOnboardingTour
+      v-if="!isEmbed"
+      :active="tourActive"
+      :step-id="onboardingStepId"
+      :step-index="onboardingStepIndex"
+      :step-count="onboardingStepCount"
+      :is-first="onboardingIsFirst"
+      :is-last="onboardingIsLast"
+      :target-rect="onboardingTargetRect"
+      :title="tourStepCopy.title"
+      :body="tourStepCopy.body"
+      :skip-label="onboardingCopy.skip"
+      :next-label="onboardingCopy.next"
+      :back-label="onboardingCopy.back"
+      :done-label="onboardingCopy.done"
+      :progress-label="tourProgressLabel"
+      @next="onboardingNext"
+      @prev="onboardingPrev"
+      @skip="skipTour"
+      @remount="remountMeasure"
+    />
 
     <div v-if="status === 'loading'" class="sky__overlay">Cargando atlas…</div>
     <div v-else-if="status === 'error'" class="sky__overlay">
