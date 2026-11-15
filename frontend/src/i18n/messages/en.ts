@@ -216,6 +216,86 @@ export const en: Messages = {
     retry: 'Retry',
     hint: 'Drag to explore · scroll to zoom (infinite HiPS tiles)',
     aladinAria: 'Aladin Lite explorer',
+    onboarding: {
+      openGuide: 'Guide',
+      skip: 'Skip',
+      next: 'Next',
+      back: 'Back',
+      done: 'Done',
+      progress: 'Step {current} of {total}',
+      guideTitle: 'How to use the atlas',
+      guideLead:
+        'Follow this flow: pick a place, review its captures, open the blink, and look for changes across dates.',
+      guideClose: 'Close',
+      guideRestart: 'Replay tour',
+      glossaryTitle: 'Useful words',
+      steps: {
+        atlas: {
+          title: 'The sky map',
+          body: 'This is the atlas: drag to pan and use the wheel to zoom (zoom = field of view).',
+        },
+        targets: {
+          title: 'Pick a target',
+          body: 'Targets are ready-made destinations (presets). Tap one to jump to that sky region.',
+        },
+        data: {
+          title: 'Review the captures',
+          body: 'Under Data you see observations (images) for that region and can open each one’s detail.',
+        },
+        motion: {
+          title: 'Open motion',
+          body: 'Under Motion, play epochs as a short movie (timelapse / blink) to spot changes.',
+        },
+        interpret: {
+          title: 'Watch what “jumps”',
+          body: 'If something moves or changes brightness between frames, that’s the signal. Open Guide anytime to review.',
+        },
+      },
+      guideSections: [
+        {
+          id: 'find',
+          title: '1. Find a place',
+          body: 'Use Targets or Search (coordinates) to center the atlas on a region.',
+        },
+        {
+          id: 'data',
+          title: '2. Check Data',
+          body: 'There you’ll find SPHEREx captures for the area. Detail shows metadata and the image.',
+        },
+        {
+          id: 'motion',
+          title: '3. Open Motion',
+          body: 'The blink compares several epochs (photos from different dates) one after another.',
+        },
+        {
+          id: 'read',
+          title: '4. Read the change',
+          body: 'Proper motion, brightness variation, or an object that “appears” between frames.',
+        },
+      ],
+      terms: [
+        {
+          term: 'Epoch',
+          meaning: 'A photo of the same region taken on another date.',
+        },
+        {
+          term: 'Blink / timelapse',
+          meaning: 'Playing those epochs quickly, like a short video.',
+        },
+        {
+          term: 'FOV',
+          meaning: 'Field of view: how much sky fits on screen (more zoom = smaller FOV).',
+        },
+        {
+          term: 'Bands D1–D6',
+          meaning: 'SPHEREx detectors / near-infrared light ranges.',
+        },
+        {
+          term: 'RAW and HD',
+          meaning: 'Satellite raw view vs. a stretched version that’s easier to read in infrared.',
+        },
+      ],
+    },
   },
   panel: {
     homeTitle: 'Home',
