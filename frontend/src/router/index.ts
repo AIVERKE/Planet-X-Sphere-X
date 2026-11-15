@@ -19,6 +19,13 @@ const router = createRouter({
       meta: { titleKey: 'mission' as const },
     },
     {
+      path: '/catalogo',
+      alias: '/catalog',
+      name: 'catalog',
+      component: () => import('@/views/CatalogView.vue'),
+      meta: { titleKey: 'catalog' as const },
+    },
+    {
       path: '/que-somos',
       name: 'about',
       component: () => import('@/views/AboutView.vue'),
@@ -45,7 +52,8 @@ function resolveRouteTitle(titleKey: unknown) {
     titleKey === 'explorer' ||
     titleKey === 'mission' ||
     titleKey === 'home' ||
-    titleKey === 'about'
+    titleKey === 'about' ||
+    titleKey === 'catalog'
   ) {
     return messages.routes[titleKey]
   }

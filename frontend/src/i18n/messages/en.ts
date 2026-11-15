@@ -14,6 +14,7 @@ export const en: Messages = {
     space: 'Space',
     explore: 'Explore',
     spherex: 'SPHEREx',
+    catalog: 'Catalog',
     about: 'About us',
     menu: 'Menu',
     close: 'Close',
@@ -291,10 +292,25 @@ export const en: Messages = {
       },
     },
   },
+  catalog: {
+    kicker: 'From afar',
+    title: 'A catalog for reading the sky',
+    lead: 'Each body turns the way it looks from a distance. Open one to learn how to identify it, and which yard lights impersonate it.',
+    back: 'Back',
+    close: 'Close',
+    far: 'How it looks',
+    identify: 'How to identify it',
+    traps: 'In the yard, do not confuse it with',
+    rows: {
+      sky: 'In the sky',
+      yard: 'In the yard',
+    },
+  },
   routes: {
     explorer: 'Explore',
     mission: 'SPHEREx Mission',
     home: 'Panel',
     about: 'About us',
+    catalog: 'Catalog',
   },
 }

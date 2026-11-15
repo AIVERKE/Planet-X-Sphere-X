@@ -11,7 +11,7 @@ watch(
   () => {
     const key = route.meta.titleKey
     const title =
-      key === 'explorer' || key === 'mission' || key === 'home' || key === 'about'
+      key === 'explorer' || key === 'mission' || key === 'home' || key === 'about' || key === 'catalog'
         ? localeStore.messages.routes[key]
         : localeStore.messages.brand
     document.title = `${title} · Planet X and SPHEREx`
