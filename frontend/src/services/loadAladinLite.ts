@@ -64,6 +64,16 @@ export const LOCAL_HIPS = {
 
 export type LocalHipsId = keyof typeof LOCAL_HIPS
 
+/**
+ * Mapa base al visitar un preset.
+ * Los campos amplios van por IRSA. El resto prefiere ESA (más nítido), salvo que ESA no
+ * haya respondido al arrancar: pedirle tiles a un host caído deja el cielo negro.
+ */
+export function presetSurvey(category: string, esaReachable: boolean): LocalHipsId {
+  if (category === 'survey_field' || !esaReachable) return 'dss2-color'
+  return 'esa-dss'
+}
+
 let pending: Promise<AladinAPI> | null = null
 let networkPatched = false
 
@@ -93,7 +103,8 @@ export function patchAladinNetwork() {
   window.fetch = (input: RequestInfo | URL, init?: RequestInit) => {
     const url = urlOf(input)
     if (isBrokenCdsHost(url)) {
-      return Promise.resolve(new Response('{}', { status: 204, statusText: 'No Content' }))
+      // 204 no admite cuerpo: `new Response('{}', { status: 204 })` lanza TypeError.
+      return Promise.resolve(new Response(null, { status: 204, statusText: 'No Content' }))
     }
     return originalFetch(input, init)
   }
