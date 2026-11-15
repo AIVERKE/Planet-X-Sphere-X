@@ -6,6 +6,7 @@ import {
   applyLocalHips,
   loadAladinLite,
   patchAladinNetwork,
+  pickStartHips,
   presetSurvey,
   refreshAladinView,
   setAladinFoV,
@@ -485,26 +486,13 @@ async function boot() {
 
     // ESA a veces no contesta. IRSA DSS sí, y el cielo puede abrir igual.
     setSkyHint('checkingTiles')
-    const hipsOrder: LocalHipsId[] = ['esa-dss', 'dss2-color']
-    let hipsUrl = ''
-    for (const id of hipsOrder) {
-      try {
-        const probe = await fetch(`${LOCAL_HIPS[id].url}/properties`, {
-          cache: 'no-store',
-          signal: AbortSignal.timeout(8000),
-        })
-        if (!probe.ok) continue
-        surveyId.value = id
-        hipsUrl = LOCAL_HIPS[id].url
-        break
-      } catch {
-        /* timeout o red: prueba el siguiente mapa */
-      }
-    }
-    esaReachable = hipsUrl === LOCAL_HIPS['esa-dss'].url
-    if (!hipsUrl) {
+    const startHips = await pickStartHips()
+    esaReachable = startHips === 'esa-dss'
+    if (!startHips) {
       throw new Error('El mapa del cielo no respondió. Pulsa Reintentar.')
     }
+    surveyId.value = startHips
+    const hipsUrl = LOCAL_HIPS[startHips].url
 
     const aladin = A.aladin(host.value, {
       survey: hipsUrl,
