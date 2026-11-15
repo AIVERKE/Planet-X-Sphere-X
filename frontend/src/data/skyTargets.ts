@@ -230,6 +230,20 @@ export const SKY_TARGETS: SkyTarget[] = [
       'Rho Ophiuchi es un laboratorio de formación estelar. En IR el polvo opaco se vuelve brillante: perfecto para mostrar el salto de vista cruda → HD.',
   },
   {
+    id: 'wise-0855',
+    name: 'WISE 0855',
+    aka: 'RA 133.7951 · Dec −7.2451',
+    kind: 'region',
+    ra: 133.7951,
+    dec: -7.2451,
+    fovWide: 2.4,
+    fovHd: 0.2,
+    obsRadius: 90,
+    blurb: 'Enana marrón cercana. Video SPHEREx de varias épocas.',
+    report:
+      'WISE 0855−0714 es una enana marrón fría a unos 7 años luz. En Movimiento el reproductor arma un video con los cutouts SPHEREx de un detector (D1–D6), ordenados por fecha. Comparar con WISE deja el blink unWISE como vista secundaria.',
+  },
+  {
     id: 'wiseview-demo',
     name: 'Campo WiseView (demo)',
     aka: 'RA 133.79 · Dec −8.24',
@@ -240,9 +254,9 @@ export const SKY_TARGETS: SkyTarget[] = [
     /** ~0.35° ≈ contexto HD; 176″ (~0.049°) es el zoom pixeleado de WiseView. */
     fovHd: 0.35,
     obsRadius: 120,
-    blurb: 'Mismas coords que WiseView · blink unWISE por épocas (movimiento real).',
+    blurb: 'Campo WiseView. SPHEREx es el video; unWISE queda en Comparar con WISE.',
     report:
-      'Coords del laboratorio WiseView (133.786245, −8.244372). En Sellos → Épocas el blink usa cutouts unWISE NEO2…NEO11 (Legacy Survey): mismas coords, años distintos, se ve el desplazamiento. Bandas PS1 quedan como modo secundario. Atlas HD + metadatos SPHEREx aparte.',
+      'Coords del laboratorio WiseView (133.786245, −8.244372). Movimiento abre el reproductor SPHEREx. Comparar con WISE conserva el blink unWISE (NEO2…NEO11) y las bandas PanSTARRS.',
   },
 ]
 

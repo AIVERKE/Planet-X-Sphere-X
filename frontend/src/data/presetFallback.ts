@@ -1,0 +1,178 @@
+import type { PresetLocation } from '@/types/presets'
+
+/**
+ * Copia mínima por si /api/presets no responde.
+ * La fuente de verdad es el backend. Estas coords ya están en época 2025.5
+ * (mismo cálculo que propagate_position) para que Barnard's Star no quede fuera.
+ */
+export const SPHEREX_EPOCH = 2025.5
+
+export const PRESET_FALLBACK: PresetLocation[] = [
+  {
+    id: 'barnard',
+    name: "Barnard's Star",
+    ra: 269.446379,
+    dec: 4.76677,
+    catalog_ra: 269.45207696,
+    catalog_dec: 4.69336497,
+    catalog_epoch: 2000,
+    radius_deg: 0.12,
+    fov_deg: 0.4,
+    epoch: SPHEREX_EPOCH,
+    pm_ra: -801.551,
+    pm_dec: 10362.394,
+    category: 'official_test',
+    object_type: 'red_dwarf',
+    description: 'Enana roja con el mayor movimiento propio conocido (~10.4″/año).',
+    highlight:
+      'Observa cómo se desplaza hacia el norte entre épocas. El botón apunta a ~2025, no al año 2000.',
+  },
+  {
+    id: 'eps_indi_b',
+    name: 'Epsilon Indi B',
+    ra: 331.095662,
+    dec: -56.800308,
+    catalog_ra: 331.04414659,
+    catalog_dec: -56.7828442,
+    catalog_epoch: 2000,
+    radius_deg: 0.1,
+    fov_deg: 0.4,
+    epoch: SPHEREX_EPOCH,
+    pm_ra: 3981.977,
+    pm_dec: -2466.832,
+    category: 'official_test',
+    object_type: 'brown_dwarf',
+    description: 'Par de enanas marrones con movimiento propio alto (~4.7″/año).',
+    highlight: 'Observa el corrimiento del par respecto al fondo entre épocas WISE.',
+  },
+  {
+    id: 'wise_0855',
+    name: 'WISE 0855',
+    ra: 133.761007,
+    dec: -7.242341,
+    catalog_ra: 133.79512917,
+    catalog_dec: -7.24514722,
+    catalog_epoch: 2010.5,
+    radius_deg: 0.1,
+    fov_deg: 0.4,
+    epoch: SPHEREX_EPOCH,
+    pm_ra: -8123.7,
+    pm_dec: 673.2,
+    category: 'official_test',
+    object_type: 'brown_dwarf',
+    description: 'Enana marrón ultrafría con movimiento rápido (~8.1″/año).',
+    highlight:
+      'Es el caso WiseView: blink por época, centrado donde estará en la época SPHEREx.',
+  },
+  {
+    id: 'rw_aur',
+    name: 'RW Aurigae',
+    ra: 76.956585,
+    dec: 30.401294,
+    catalog_ra: 76.95652603,
+    catalog_dec: 30.40143817,
+    catalog_epoch: 2000,
+    radius_deg: 0.08,
+    fov_deg: 0.4,
+    epoch: SPHEREX_EPOCH,
+    pm_ra: 7.23,
+    pm_dec: -20.33,
+    category: 'official_test',
+    object_type: 'variable_star',
+    description: 'Estrella T Tauri. Cambia de brillo, no de sitio.',
+    highlight: 'Compara el brillo entre épocas. El desplazamiento es menor que 1″ en 25 años.',
+  },
+  {
+    id: 'r_dra',
+    name: 'R Draconis',
+    ra: 248.16724,
+    dec: 66.755023,
+    catalog_ra: 248.16761083,
+    catalog_dec: 66.75497942,
+    catalog_epoch: 2000,
+    radius_deg: 0.08,
+    fov_deg: 0.4,
+    epoch: SPHEREX_EPOCH,
+    pm_ra: -20.643,
+    pm_dec: 6.149,
+    category: 'official_test',
+    object_type: 'variable_star',
+    description: 'Variable tipo Mira con cambios de brillo muy marcados.',
+    highlight: 'Busca variación de brillo entre épocas, no un salto de posición.',
+  },
+  {
+    id: 'nep',
+    name: 'Polo Eclíptico Norte (NEP)',
+    ra: 270,
+    dec: 66.56,
+    catalog_ra: null,
+    catalog_dec: null,
+    catalog_epoch: null,
+    radius_deg: 10,
+    fov_deg: 20,
+    epoch: 2000,
+    pm_ra: null,
+    pm_dec: null,
+    category: 'survey_field',
+    object_type: 'survey_region',
+    description: 'Zona de alta profundidad SPHEREx.',
+    highlight: 'Campo de sondeo, no un objeto del reto.',
+  },
+  {
+    id: 'sep',
+    name: 'Polo Eclíptico Sur (SEP)',
+    ra: 90,
+    dec: -66.56,
+    catalog_ra: null,
+    catalog_dec: null,
+    catalog_epoch: null,
+    radius_deg: 10,
+    fov_deg: 20,
+    epoch: 2000,
+    pm_ra: null,
+    pm_dec: null,
+    category: 'survey_field',
+    object_type: 'survey_region',
+    description: 'Región austral de calibración.',
+    highlight: 'Campo de sondeo austral.',
+  },
+  {
+    id: 'galactic_center',
+    name: 'Cercanías del Centro Galáctico',
+    ra: 266.416,
+    dec: -29.007,
+    catalog_ra: null,
+    catalog_dec: null,
+    catalog_epoch: null,
+    radius_deg: 5,
+    fov_deg: 10,
+    epoch: 2000,
+    pm_ra: null,
+    pm_dec: null,
+    category: 'survey_field',
+    object_type: 'survey_region',
+    description: 'Región densa en estrellas.',
+    highlight: 'Campo denso para el atlas, no uno de los 5 objetos del reto.',
+  },
+]
+
+/** Alias aceptados en `?target=` (formas cortas o sin guion bajo). */
+const PRESET_ALIASES: Record<string, string> = {
+  wise0855: 'wise_0855',
+  'wise-0855': 'wise_0855',
+  epsindib: 'eps_indi_b',
+  'eps-indi-b': 'eps_indi_b',
+  rwaur: 'rw_aur',
+  rdra: 'r_dra',
+}
+
+/** Busca un preset por id o alias (sin distinguir mayúsculas). */
+export function presetById(
+  id: string | null | undefined,
+  list: readonly PresetLocation[] = PRESET_FALLBACK,
+): PresetLocation | undefined {
+  if (!id) return undefined
+  const key = id.trim().toLowerCase()
+  const canonical = PRESET_ALIASES[key] ?? key
+  return list.find((p) => p.id === canonical)
+}

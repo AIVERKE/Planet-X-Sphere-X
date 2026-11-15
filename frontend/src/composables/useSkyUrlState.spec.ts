@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { LocationQuery } from 'vue-router'
-import { skyTargetById } from '@/data/skyTargets'
+import { presetById } from '@/data/presetFallback'
 import {
   FOV_MAX,
   FOV_MIN,
@@ -41,8 +41,8 @@ describe('readFromQuery', () => {
     (id) => {
       const { state, invalid } = readFromQuery({ target: id })
       expect(invalid).toEqual([])
-      expect(state.target).toBe(id)
-      expect(skyTargetById(id)).toBeDefined()
+      expect(presetById(id)).toBeDefined()
+      expect(state.target).toBe(presetById(id)?.id)
     },
   )
 
@@ -99,7 +99,7 @@ describe('readFromQuery', () => {
     const result = readFromQuery({ ra: 'abc', dec: '1', target: 'barnard' })
     expect(result.state.target).toBe('barnard')
     expect(describeInvalidQuery(result)).toBe(
-      'Coordenadas inválidas en la URL, se centró en Estrella de Barnard',
+      "Coordenadas inválidas en la URL, se centró en Barnard's Star",
     )
   })
 
@@ -128,11 +128,11 @@ describe('readFromQuery', () => {
   })
 
   it('parámetros repetidos: se usa el primer valor', () => {
-    const query: LocationQuery = { ra: ['10', '20'], dec: ['5', '6'], target: ['crab', 'orion'] }
+    const query: LocationQuery = { ra: ['10', '20'], dec: ['5', '6'], target: ['r_dra', 'barnard'] }
     const { state } = readFromQuery(query)
     expect(state.ra).toBe(10)
     expect(state.dec).toBe(5)
-    expect(state.target).toBe('crab')
+    expect(state.target).toBe('r_dra')
   })
 })
 

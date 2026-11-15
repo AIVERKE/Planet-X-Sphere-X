@@ -17,10 +17,11 @@ import {
   type RouteLocationNormalizedLoaded,
   type Router,
 } from 'vue-router'
-import { skyTargetById } from '@/data/skyTargets'
+import { presetById } from '@/data/presetFallback'
 import { isValidDec, isValidRa, parseCoord } from '@/utils/skyFormat'
 
-export const FOV_MIN = 0.08
+/** Por debajo de ~0.12° el DSS se ve a bloques: el detalle fino va en el reproductor. */
+export const FOV_MIN = 0.12
 export const FOV_MAX = 40
 export const URL_WRITE_DELAY_MS = 400
 /** Tiempo máximo para que el router refleje una escritura propia. */
@@ -96,8 +97,8 @@ export function readFromQuery(query: LocationQuery): SkyUrlParseResult {
 
   const rawTarget = firstValue(query.target)
   if (rawTarget != null) {
-    const id = rawTarget.toLowerCase()
-    if (skyTargetById(id)) state.target = id
+    const preset = presetById(rawTarget)
+    if (preset) state.target = preset.id
     else invalid.push('target')
   }
 
@@ -124,7 +125,7 @@ export function describeInvalidQuery(
   if (state.ra != null) {
     outcome = 'se ignoraron esos parámetros'
   } else if (state.target) {
-    const name = skyTargetById(state.target)?.name ?? state.target
+    const name = presetById(state.target)?.name ?? state.target
     outcome = `se centró en ${name}`
   } else {
     outcome = options.live ? 'se mantuvo la vista actual' : 'se cargó la vista por defecto'
