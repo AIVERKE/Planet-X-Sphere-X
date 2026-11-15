@@ -41,6 +41,7 @@ import threading
 import time
 import warnings
 from collections import defaultdict
+from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 from typing import Any
 from urllib.parse import urlencode, urljoin, urlsplit
@@ -63,6 +64,7 @@ MAX_FRAMES = 16
 SCIENCE_EXTNAMES = frozenset({"IMAGE", "SCI", "FLUX"})
 _MAX_ATTEMPTS = 5
 _RETRY_DELAY_SEC = 2.0
+_DOWNLOAD_WORKERS = 6
 _LOCK = threading.Lock()
 
 
@@ -390,7 +392,13 @@ def shared_stretch(
     size_deg: float,
 ) -> tuple[float, float]:
     """Download and reproject every cutout, then return one zscale interval."""
-    arrays = [_load_projected(url, ra, dec, size_deg) for url in urls]
+    if not urls:
+        raise CutoutDataError("no frames to scale")
+    # Downloads are I/O bound; fetch them in parallel. map() keeps input order
+    # and re-raises the first worker exception.
+    workers = min(_DOWNLOAD_WORKERS, len(urls))
+    with ThreadPoolExecutor(max_workers=workers) as pool:
+        arrays = list(pool.map(lambda url: _load_projected(url, ra, dec, size_deg), urls))
     return stretch_limits(arrays)
 
 

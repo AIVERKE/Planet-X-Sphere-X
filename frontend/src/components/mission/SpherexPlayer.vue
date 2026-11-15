@@ -20,6 +20,7 @@ const band = ref<string | null>(null)
 const matched = ref(0)
 const phase = ref<'idle' | 'meta' | 'images' | 'ready' | 'error'>('idle')
 const loadedImages = ref(0)
+const skipped = ref(0)
 const errorMessage = ref('')
 let loadToken = 0
 
@@ -59,21 +60,27 @@ function preloadOne(src: string): Promise<void> {
   })
 }
 
-async function preload(urls: string[], token: number): Promise<void> {
+/** Precarga todos los PNG; devuelve qué índices cargaron bien (un fallo no tumba el resto). */
+async function preload(urls: string[], token: number): Promise<boolean[]> {
   loadedImages.value = 0
-  if (!urls.length) return
-  await Promise.all(
+  if (!urls.length) return []
+  const results = await Promise.allSettled(
     urls.map(async (src) => {
-      await preloadOne(src)
-      if (token === loadToken) loadedImages.value += 1
+      try {
+        await preloadOne(src)
+      } finally {
+        if (token === loadToken) loadedImages.value += 1
+      }
     }),
   )
+  return results.map((r) => r.status === 'fulfilled')
 }
 
 async function load() {
   const token = ++loadToken
   reset()
   frames.value = []
+  skipped.value = 0
   phase.value = 'meta'
   errorMessage.value = ''
   loadedImages.value = 0
@@ -93,10 +100,14 @@ async function load() {
     band.value = result.band
     phase.value = 'images'
     const urls = result.frames.map((frame) => apiUrl(frame.png_url))
-    await preload(urls, token)
+    const ok = await preload(urls, token)
     if (token !== loadToken) return
+    const usable = result.frames.filter((_, i) => ok[i])
+    skipped.value = result.frames.length - usable.length
+    if (!usable.length) throw new Error('No se pudo cargar ningún cuadro PNG')
+    frames.value = usable
     phase.value = 'ready'
-    if (result.frames.length >= 2) play()
+    if (usable.length >= 2) play()
   } catch (error) {
     if (token !== loadToken) return
     errorMessage.value = classify(error)
@@ -188,7 +199,7 @@ watch(
           :disabled="frames.length < 2"
           @input="onSlide"
         />
-        <span>{{ index + 1 }} / {{ frames.length }}<template v-if="matched > frames.length"> · {{ matched }} épocas</template></span>
+        <span>{{ index + 1 }} / {{ frames.length }}<template v-if="matched > frames.length"> · {{ matched }} épocas</template><template v-if="skipped"> · {{ skipped }} sin cargar</template></span>
       </label>
 
       <figure class="player__frame">
