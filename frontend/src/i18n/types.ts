@@ -36,6 +36,7 @@ export interface Messages {
     lookingSky: string
     dragHint: string
     ascend: string
+    landscapeCredit: string
   }
   scroll: {
     continue: string
@@ -121,6 +122,7 @@ export interface Messages {
     scrollHint: string
     loading: string
     error: string
+    catalogCta: string
     sections: Record<
       string,
       {

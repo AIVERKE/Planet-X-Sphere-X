@@ -11,12 +11,12 @@ export function isLocale(value: unknown): value is Locale {
 }
 
 export function readStoredLocale(): Locale {
-  if (typeof localStorage === 'undefined') return 'es'
+  if (typeof localStorage === 'undefined') return 'en'
   try {
     const stored = localStorage.getItem(LOCALE_STORAGE_KEY)
-    return isLocale(stored) ? stored : 'es'
+    return isLocale(stored) ? stored : 'en'
   } catch {
-    return 'es'
+    return 'en'
   }
 }
 

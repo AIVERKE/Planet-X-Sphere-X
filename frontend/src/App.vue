@@ -14,7 +14,7 @@ watch(
       key === 'explorer' || key === 'mission' || key === 'home' || key === 'about' || key === 'catalog'
         ? localeStore.messages.routes[key]
         : localeStore.messages.brand
-    document.title = `${title} · Planet X and SPHEREx`
+    document.title = `${title} · SCOUT · SPHEREx`
   },
 )
 </script>

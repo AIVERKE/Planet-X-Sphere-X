@@ -62,7 +62,7 @@ function resolveRouteTitle(titleKey: unknown) {
 
 router.afterEach((to) => {
   const title = resolveRouteTitle(to.meta.titleKey)
-  document.title = `${title} · Planet X and SPHEREx`
+  document.title = `${title} · SCOUT · SPHEREx`
 })
 
 export default router
