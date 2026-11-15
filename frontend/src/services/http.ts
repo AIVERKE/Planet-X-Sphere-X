@@ -82,5 +82,8 @@ export async function fetchObservations(query: ObservationQuery): Promise<Observ
   if (query.t_end != null) params.set('t_end', String(query.t_end))
   if (query.group_by_band) params.set('group_by_band', 'true')
 
-  return httpGet<ObservationsResponse>(`/api/observations?${params.toString()}`)
+  // IRSA saturado: fallar pronto; el UI ofrece reintento / blink / cooldown.
+  return httpGet<ObservationsResponse>(`/api/observations?${params.toString()}`, {
+    timeoutMs: 22_000,
+  })
 }

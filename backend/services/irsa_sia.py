@@ -22,8 +22,9 @@ from pyvo.dal import DALAccessError
 DEFAULT_COLLECTION = "spherex_dr1"
 BAND_COLUMN = "energy_bandpassname"
 UNKNOWN_BAND = "unknown"
-_MAX_ATTEMPTS = 5
-_RETRY_DELAY_SEC = 2.0
+# Pocos reintentos: si el proxy IRSA da 502/503, alargar la espera satura al usuario.
+_MAX_ATTEMPTS = 2
+_RETRY_DELAY_SEC = 1.2
 
 
 class UpstreamServiceError(Exception):
@@ -47,6 +48,7 @@ def query_images(ra: float, dec: float, radius_arcsec: float, collection: str) -
                 time.sleep(_RETRY_DELAY_SEC * attempt)
                 continue
             detail = str(exc).strip() or exc.__class__.__name__
+            # Prefijo estable para tests; el cliente muestra un mensaje corto.
             raise UpstreamServiceError(f"IRSA SIA query failed: {detail}") from exc
     assert last_exc is not None
     raise UpstreamServiceError(f"IRSA SIA query failed: {last_exc}") from last_exc
