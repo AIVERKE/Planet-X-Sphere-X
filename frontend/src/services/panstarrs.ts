@@ -118,3 +118,40 @@ export async function fetchPanstarrsStamps(
   if (!stamps.length) throw new Error('Sin sellos PanSTARRS para estas coords')
   return stamps
 }
+
+const colorFileCache = new Map<string, { y: string; i: string; g: string } | null>()
+
+async function colorFiles(ra: number, dec: number): Promise<{ y: string; i: string; g: string }> {
+  const key = `${ra.toFixed(2)},${dec.toFixed(2)}`
+  let files = colorFileCache.get(key)
+  if (files === undefined) {
+    const metaUrl = `${PS1}/cgi-bin/ps1filenames.py?ra=${ra}&dec=${dec}&filters=yig`
+    const res = await fetch(metaUrl)
+    if (!res.ok) throw new Error(`PanSTARRS filenames HTTP ${res.status}`)
+    const lines = (await res.text()).trim().split(/\r?\n/)
+    const header = (lines[0] ?? '').split(/\s+/)
+    const byFilter = new Map<string, string>()
+    for (const line of lines.slice(1)) {
+      const cols = line.split(/\s+/)
+      const row: Record<string, string> = {}
+      header.forEach((name, i) => {
+        row[name] = cols[i] ?? ''
+      })
+      if (row.filter && row.filename) byFilter.set(row.filter, row.filename)
+    }
+    const y = byFilter.get('y')
+    const i = byFilter.get('i')
+    const g = byFilter.get('g')
+    files = y && i && g ? { y, i, g } : null
+    colorFileCache.set(key, files)
+  }
+  if (!files) throw new Error('Sin foto color PanSTARRS en este punto')
+  return files
+}
+
+/** JPEG color real (y/i/g) a la escala nativa de PanSTARRS, 0.25″ por píxel. */
+export async function panstarrsColorJpeg(ra: number, dec: number, sizePx: number): Promise<string> {
+  const files = await colorFiles(ra, dec)
+  const size = Math.round(Math.min(1200, Math.max(64, sizePx)))
+  return fitscutJpeg({ red: files.y, green: files.i, blue: files.g, ra, dec, size })
+}

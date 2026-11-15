@@ -51,7 +51,8 @@ import requests
 from astropy.io import fits
 from astropy.visualization import AsinhStretch, ZScaleInterval
 from astropy.wcs import WCS
-from PIL import Image
+from PIL import Image, ImageEnhance, ImageFilter, ImageOps
+
 from reproject import reproject_interp
 
 from services import irsa_sia
@@ -60,7 +61,12 @@ logger = logging.getLogger(__name__)
 
 IRSA_HOST = "irsa.ipac.caltech.edu"
 OUTPUT_PIXELS = 192
-MAX_FRAMES = 16
+# Same 192² grid, drawn larger and tinted. A new tag drops the black-sky cache.
+HD_PIXELS = 768
+HD_RENDER_TAG = "hd_v8_read"
+MAX_FRAMES = 12
+# One cutout sets the blink scale. Extra downloads kept the panel on "consultando IRSA".
+STRETCH_SAMPLE = 1
 SCIENCE_EXTNAMES = frozenset({"IMAGE", "SCI", "FLUX"})
 _MAX_ATTEMPTS = 5
 _RETRY_DELAY_SEC = 2.0
@@ -165,20 +171,25 @@ def build_png_url(
     ra: float,
     dec: float,
     size_deg: float,
-    vmin: float,
-    vmax: float,
+    vmin: float | None,
+    vmax: float | None,
+    style: str = "raw",
 ) -> str:
     """Relative URL the browser can request through the Vite proxy."""
-    query = urlencode(
-        {
-            "url": cutout_url,
-            "ra": f"{ra:.8g}",
-            "dec": f"{dec:.8g}",
-            "size": f"{size_deg:.8g}",
-            "vmin": f"{vmin:.8g}",
-            "vmax": f"{vmax:.8g}",
-        }
-    )
+    params: dict[str, str] = {
+        "url": cutout_url,
+        "ra": f"{ra:.8g}",
+        "dec": f"{dec:.8g}",
+        "size": f"{size_deg:.8g}",
+        "style": style if style in {"raw", "hd"} else "raw",
+    }
+    if params["style"] == "hd":
+        # Bust the browser cache (the PNG is cached for a day).
+        params["v"] = HD_RENDER_TAG
+    if vmin is not None and vmax is not None:
+        params["vmin"] = f"{vmin:.8g}"
+        params["vmax"] = f"{vmax:.8g}"
+    query = urlencode(params)
     return f"/api/cutouts/png?{query}"
 
 
@@ -194,6 +205,7 @@ def _png_cache_path(
     size_deg: float,
     vmin: float,
     vmax: float,
+    style: str = "raw",
 ) -> Path:
     raw = "|".join(
         [
@@ -204,6 +216,9 @@ def _png_cache_path(
             f"{vmin:.8g}",
             f"{vmax:.8g}",
             str(OUTPUT_PIXELS),
+            str(HD_PIXELS) if style == "hd" else "raw",
+            style,
+            HD_RENDER_TAG if style == "hd" else "raw_v1",
         ]
     )
     digest = hashlib.sha256(raw.encode("utf-8")).hexdigest()
@@ -345,22 +360,29 @@ def reproject_science(
     ra: float,
     dec: float,
     size_deg: float,
+    n_pixels: int = OUTPUT_PIXELS,
 ) -> np.ndarray:
     """Resample onto the shared output grid. Off-footprint pixels become NaN."""
-    target = output_wcs(ra, dec, size_deg)
+    target = output_wcs(ra, dec, size_deg, n_pixels=n_pixels)
     projected, _footprint = reproject_interp(
         (np.asarray(data, dtype=np.float64), wcs),
         target,
-        shape_out=(OUTPUT_PIXELS, OUTPUT_PIXELS),
+        shape_out=(n_pixels, n_pixels),
     )
     projected = np.asarray(projected, dtype=np.float64)
     return np.where(np.isfinite(projected), projected, np.nan)
 
 
-def _load_projected(url: str, ra: float, dec: float, size_deg: float) -> np.ndarray:
+def _load_projected(
+    url: str,
+    ra: float,
+    dec: float,
+    size_deg: float,
+    n_pixels: int = OUTPUT_PIXELS,
+) -> np.ndarray:
     path = download_fits(url)
     data, wcs = read_science(path)
-    return reproject_science(data, wcs, ra, dec, size_deg)
+    return reproject_science(data, wcs, ra, dec, size_deg, n_pixels=n_pixels)
 
 
 def stretch_limits(frames: list[np.ndarray]) -> tuple[float, float]:
@@ -385,25 +407,64 @@ def stretch_limits(frames: list[np.ndarray]) -> tuple[float, float]:
     return vmin_f, vmax_f
 
 
+def _even_indices(n: int, k: int) -> list[int]:
+    """Pick ``k`` evenly spaced indices from ``0 .. n-1``."""
+    if n <= 0:
+        return []
+    if k >= n:
+        return list(range(n))
+    if k <= 1:
+        return [0]
+    return [round(i * (n - 1) / (k - 1)) for i in range(k)]
+
+
 def shared_stretch(
     urls: list[str],
     ra: float,
     dec: float,
     size_deg: float,
 ) -> tuple[float, float]:
-    """Download and reproject every cutout, then return one zscale interval."""
+    """Download a small sample of cutouts and return one shared zscale interval."""
     if not urls:
         raise CutoutDataError("no frames to scale")
+    sample = [urls[i] for i in _even_indices(len(urls), STRETCH_SAMPLE)]
     # Downloads are I/O bound; fetch them in parallel. map() keeps input order
     # and re-raises the first worker exception.
-    workers = min(_DOWNLOAD_WORKERS, len(urls))
+    workers = min(_DOWNLOAD_WORKERS, len(sample))
     with ThreadPoolExecutor(max_workers=workers) as pool:
-        arrays = list(pool.map(lambda url: _load_projected(url, ra, dec, size_deg), urls))
+        arrays = list(pool.map(lambda url: _load_projected(url, ra, dec, size_deg), sample))
     return stretch_limits(arrays)
 
 
-def stretch_to_uint8(data: np.ndarray, vmin: float, vmax: float) -> np.ndarray:
-    """Asinh stretch into 0–255. Non-finite pixels become 0 (black)."""
+def fill_invalid(data: np.ndarray) -> np.ndarray:
+    """Replace NaN/Inf with a local median so saturated cores are not black holes."""
+    arr = np.asarray(data, dtype=np.float64).copy()
+    bad = ~np.isfinite(arr)
+    if not np.any(bad):
+        return arr
+    finite = arr[~bad]
+    if finite.size == 0:
+        return np.zeros_like(arr)
+    fallback = float(np.nanmedian(finite))
+    # 3×3 neighbourhood pass, then global median for leftovers.
+    h, w = arr.shape
+    ys, xs = np.where(bad)
+    for y, x in zip(ys, xs, strict=False):
+        y0, y1 = max(0, y - 1), min(h, y + 2)
+        x0, x1 = max(0, x - 1), min(w, x + 2)
+        patch = arr[y0:y1, x0:x1]
+        vals = patch[np.isfinite(patch)]
+        arr[y, x] = float(np.median(vals)) if vals.size else fallback
+    arr[~np.isfinite(arr)] = fallback
+    return arr
+
+
+def stretch_to_uint8(data: np.ndarray, vmin: float, vmax: float, *, style: str = "raw") -> np.ndarray:
+    """Asinh stretch into 0–255.
+
+    ``raw``: non-finite → black (scientific look).
+    ``hd``: fill invalid pixels, then stretch (smoother demo render).
+    """
     if not np.isfinite(vmin) or not np.isfinite(vmax) or vmax <= vmin:
         finite = data[np.isfinite(data)]
         if finite.size == 0:
@@ -412,7 +473,16 @@ def stretch_to_uint8(data: np.ndarray, vmin: float, vmax: float) -> np.ndarray:
         vmax = float(np.max(finite))
         if vmax <= vmin:
             vmax = vmin + 1.0
-    filled = np.where(np.isfinite(data), data, vmin)
+    if style == "hd":
+        filled = fill_invalid(data)
+        # Slightly lift the floor so faint structure reads in the false-color LUT.
+        span = vmax - vmin
+        vmin = vmin - 0.04 * span
+        vmax = vmax + 0.02 * span
+        if vmax <= vmin:
+            vmax = vmin + 1.0
+    else:
+        filled = np.where(np.isfinite(data), data, vmin)
     scaled = np.clip((filled - vmin) / (vmax - vmin), 0.0, 1.0)
     # AsinhStretch maps the unit interval; ImageNormalize needs matplotlib, which we don't ship.
     stretched = np.asarray(AsinhStretch()(scaled), dtype=np.float64)
@@ -420,14 +490,74 @@ def stretch_to_uint8(data: np.ndarray, vmin: float, vmax: float) -> np.ndarray:
     return np.clip(np.rint(stretched * 255.0), 0, 255).astype(np.uint8)
 
 
-def _png_bytes(pixels: np.ndarray) -> bytes:
-    image = Image.fromarray(pixels, mode="L")
-    return _encode_png(image)
+def _ir_palette() -> list[int]:
+    """Black-red sky → amber sources → cream cores. 768 ints for a palette."""
+    table: list[int] = []
+    for i in range(256):
+        t = i / 255.0
+        if t < 0.22:
+            u = t / 0.22
+            r, g, b = 18 + 78 * u, 4 + 10 * u, 22 + 18 * u
+        elif t < 0.55:
+            u = (t - 0.22) / 0.33
+            r, g, b = 96 + 126 * u, 14 + 58 * u, 40 - 18 * u
+        elif t < 0.82:
+            u = (t - 0.55) / 0.27
+            r, g, b = 222 + 28 * u, 72 + 112 * u, 22 + 40 * u
+        else:
+            u = (t - 0.82) / 0.18
+            r, g, b = 250 + 5 * u, 184 + 62 * u, 62 + 160 * u
+        table.extend(
+            (
+                max(0, min(255, int(r))),
+                max(0, min(255, int(g))),
+                max(0, min(255, int(b))),
+            )
+        )
+    return table
+
+
+_IR_PALETTE = np.asarray(_ir_palette(), dtype=np.uint8).reshape(256, 3)
+
+
+def _heal_saturated_cores(gray: Image.Image) -> Image.Image:
+    """Fill dark holes inside a bright core so a saturated pixel is not a black square."""
+    src = np.asarray(gray, dtype=np.uint8)
+    peak = np.asarray(gray.filter(ImageFilter.MaxFilter(5)), dtype=np.uint8)
+    hole = (peak > 190) & (src.astype(np.int16) + 70 < peak)
+    if not np.any(hole):
+        return gray
+    healed = src.copy()
+    healed[hole] = peak[hole]
+    return Image.fromarray(healed, mode="L")
+
+
+def _render_hd_image(pixels: np.ndarray) -> Image.Image:
+    """Same stretch as the satellite frame, with saturated holes closed, then IR color.
+
+    The sky stays in the picture. This does not add resolution: it makes the
+    measurement readable (one light, not a black square in the core).
+    """
+    gray = _heal_saturated_cores(Image.fromarray(np.asarray(pixels, dtype=np.uint8), mode="L"))
+    if gray.size != (HD_PIXELS, HD_PIXELS):
+        gray = gray.resize((HD_PIXELS, HD_PIXELS), Image.Resampling.LANCZOS)
+    gray = gray.filter(ImageFilter.GaussianBlur(radius=0.55))
+    gray = gray.filter(ImageFilter.UnsharpMask(radius=1.3, percent=110, threshold=2))
+    gray = ImageOps.autocontrast(gray, cutoff=0.6)
+    gray = ImageEnhance.Contrast(gray).enhance(1.12)
+    idx = np.asarray(gray, dtype=np.uint8)
+    return Image.fromarray(_IR_PALETTE[idx], mode="RGB")
+
+
+def _png_bytes(pixels: np.ndarray, *, style: str = "raw") -> bytes:
+    if style == "hd":
+        return _encode_png(_render_hd_image(pixels))
+    return _encode_png(Image.fromarray(np.asarray(pixels, dtype=np.uint8)))
 
 
 def _encode_png(image: Image.Image) -> bytes:
     buffer = io.BytesIO()
-    image.save(buffer, format="PNG")
+    image.save(buffer, format="PNG", optimize=True)
     return buffer.getvalue()
 
 
@@ -438,9 +568,14 @@ def render_png(
     size_deg: float,
     vmin: float | None = None,
     vmax: float | None = None,
+    style: str = "raw",
 ) -> bytes:
-    """Render one cutout. ``vmin``/``vmax`` fix the stretch; omit them to zscale this frame."""
+    """Render one cutout. ``vmin``/``vmax`` fix the stretch; omit them to zscale this frame.
+
+    Raw and HD share the same 192² reproject so HD does not download/reproject twice.
+    """
     url = validate_irsa_url(url)
+    style = style if style in {"raw", "hd"} else "raw"
     array: np.ndarray | None = None
     if vmin is None or vmax is None:
         array = _load_projected(url, ra, dec, size_deg)
@@ -449,14 +584,14 @@ def render_png(
             vmin = auto_vmin
         if vmax is None:
             vmax = auto_vmax
-    path = _png_cache_path(url, ra, dec, size_deg, vmin, vmax)
+    path = _png_cache_path(url, ra, dec, size_deg, vmin, vmax, style)
     if path.is_file() and path.stat().st_size > 8:
         logger.info("PNG cache hit %s", path.name)
         return path.read_bytes()
-    logger.info("PNG cache miss %s", path.name)
+    logger.info("PNG cache miss %s style=%s", path.name, style)
     if array is None:
         array = _load_projected(url, ra, dec, size_deg)
-    payload = _png_bytes(stretch_to_uint8(array, vmin, vmax))
+    payload = _png_bytes(stretch_to_uint8(array, vmin, vmax, style=style), style=style)
     with _LOCK:
         if not (path.is_file() and path.stat().st_size > 8):
             _atomic_write(path, payload)

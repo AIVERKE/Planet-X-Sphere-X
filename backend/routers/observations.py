@@ -118,16 +118,8 @@ def get_frames(
 
     matched = len(selected)
     sampled = spherex_cutouts.sample_evenly(selected, spherex_cutouts.MAX_FRAMES)
-    urls = [str(record["cutout_url"]) for record in sampled]
-    try:
-        vmin, vmax = spherex_cutouts.shared_stretch(urls, ra, dec, cutout_size)
-    except spherex_cutouts.InvalidCutoutUrl as exc:
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
-    except irsa_sia.UpstreamServiceError as exc:
-        raise HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail=str(exc)) from exc
-    except spherex_cutouts.CutoutDataError as exc:
-        raise HTTPException(status_code=422, detail=str(exc)) from exc
-
+    # No shared FITS download here. Each PNG stretches itself, so the epoch list
+    # returns with the catalog instead of sitting on "Consultando IRSA".
     frames = [
         FrameRecord(
             obs_id=str(record.get("obs_id") or ""),
@@ -135,7 +127,10 @@ def get_frames(
             t_max=None if record.get("t_max") is None else float(record["t_max"]),
             band=chosen,
             png_url=spherex_cutouts.build_png_url(
-                str(record["cutout_url"]), ra, dec, cutout_size, vmin, vmax
+                str(record["cutout_url"]), ra, dec, cutout_size, None, None, style="raw"
+            ),
+            png_url_hd=spherex_cutouts.build_png_url(
+                str(record["cutout_url"]), ra, dec, cutout_size, None, None, style="hd"
             ),
         )
         for record in sampled
@@ -146,7 +141,5 @@ def get_frames(
         available_bands=available,
         matched=matched,
         returned=len(frames),
-        vmin=vmin,
-        vmax=vmax,
         frames=frames,
     )

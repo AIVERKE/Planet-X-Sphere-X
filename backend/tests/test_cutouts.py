@@ -123,6 +123,29 @@ def test_shared_scale_keeps_constant_source():
     assert explicit_faint[0, 0] != explicit_bright[0, 0]
 
 
+def test_hd_render_is_larger_gray_and_differs_from_raw(cache, monkeypatch):
+    payload = synthetic_fits()
+
+    def fake_get(url, **kwargs):
+        return http_response(200, payload)
+
+    monkeypatch.setattr(spherex_cutouts.requests, "get", fake_get)
+    raw = client.get(PNG_URL, params={"url": IRSA, "ra": 10, "dec": 20, "size": 0.05, "style": "raw"})
+    hd = client.get(PNG_URL, params={"url": IRSA, "ra": 10, "dec": 20, "size": 0.05, "style": "hd"})
+
+    assert raw.status_code == 200 and hd.status_code == 200
+    raw_img = Image.open(io.BytesIO(raw.content))
+    hd_img = Image.open(io.BytesIO(hd.content))
+    assert raw_img.size == (spherex_cutouts.OUTPUT_PIXELS, spherex_cutouts.OUTPUT_PIXELS)
+    assert hd_img.size == (spherex_cutouts.HD_PIXELS, spherex_cutouts.HD_PIXELS)
+    assert raw_img.mode in {"L", "P"}
+    assert hd_img.mode == "RGB"
+    assert raw.content != hd.content
+    hd_arr = np.asarray(hd_img)
+    assert hd_arr[..., 0].mean() > hd_arr[..., 2].mean()
+    assert hd_arr.std() > 0
+
+
 def test_png_cache_skips_second_download(cache, monkeypatch):
     calls = []
 
@@ -201,15 +224,11 @@ def _frame_table() -> Table:
 
 def test_frames_filters_sorts_and_builds_png_url(monkeypatch):
     _install_sia(monkeypatch, _frame_table())
-    seen = {}
 
-    def fake_stretch(urls, ra, dec, size):
-        seen["urls"] = list(urls)
-        seen["ra"] = ra
-        seen["dec"] = dec
-        return 1.25, 9.5
+    def explode(*args, **kwargs):
+        raise AssertionError("frames must not download FITS before answering")
 
-    monkeypatch.setattr(spherex_cutouts, "shared_stretch", fake_stretch)
+    monkeypatch.setattr(spherex_cutouts, "shared_stretch", explode)
     res = client.get(FRAMES_URL, params={"ra": 10.5, "dec": -2, "band": "D2", "cutout_size": 0.08})
 
     assert res.status_code == 200
@@ -219,16 +238,16 @@ def test_frames_filters_sorts_and_builds_png_url(monkeypatch):
     assert [frame["obs_id"] for frame in body["frames"]] == ["d2-early", "d2-mid", "d2-late"]
     assert body["matched"] == 3
     assert body["returned"] == 3
-    assert body["vmin"] == pytest.approx(1.25)
-    assert body["vmax"] == pytest.approx(9.5)
+    assert body["vmin"] is None
+    assert body["vmax"] is None
     png_url = body["frames"][0]["png_url"]
+    png_url_hd = body["frames"][0]["png_url_hd"]
     assert png_url.startswith("/api/cutouts/png?")
-    assert "vmin=1.25" in png_url
-    assert "vmax=9.5" in png_url
-    assert png_url.find("/api/cutouts/png?") == 0
-    assert seen["ra"] == pytest.approx(10.5)
-    assert seen["dec"] == pytest.approx(-2)
-    assert all(url.startswith("https://irsa.ipac.caltech.edu/") for url in seen["urls"])
+    assert "vmin=" not in png_url
+    assert "style=raw" in png_url
+    assert png_url_hd.startswith("/api/cutouts/png?")
+    assert "style=hd" in png_url_hd
+    assert "v=hd_v8_read" in png_url_hd
     assert [frame["t_min"] for frame in body["frames"]] == sorted(frame["t_min"] for frame in body["frames"])
 
 
@@ -244,19 +263,11 @@ def test_frames_default_band_and_cap(monkeypatch):
         }
     )
     _install_sia(monkeypatch, table)
-    seen = {}
-
-    def fake_stretch(urls, ra, dec, size):
-        seen["n"] = len(urls)
-        return 0.0, 1.0
-
-    monkeypatch.setattr(spherex_cutouts, "shared_stretch", fake_stretch)
     body = client.get(FRAMES_URL, params={"ra": 133.7951, "dec": -7.2451}).json()
 
     assert body["band"] == "D2"
     assert body["matched"] == 20
-    assert body["returned"] == 16
-    assert seen["n"] == 16
+    assert body["returned"] == spherex_cutouts.MAX_FRAMES
     assert body["frames"][0]["obs_id"] == "id00"
     assert body["frames"][-1]["obs_id"] == "id19"
     assert body["frames"][0]["band"] == "D2"

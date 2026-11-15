@@ -16,9 +16,10 @@ def get_cutout_png(
     size: float = Query(0.05, gt=0.0, le=1.0, description="Cutout size (deg)"),
     vmin: float | None = Query(None, description="Shared stretch minimum"),
     vmax: float | None = Query(None, description="Shared stretch maximum"),
+    style: str = Query("raw", pattern=r"^(raw|hd)$", description="raw = scientific; hd = filled + upscaled grayscale"),
 ) -> Response:
     try:
-        payload = spherex_cutouts.render_png(url, ra, dec, size, vmin, vmax)
+        payload = spherex_cutouts.render_png(url, ra, dec, size, vmin, vmax, style=style)
     except spherex_cutouts.InvalidCutoutUrl as exc:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
     except irsa_sia.UpstreamServiceError as exc:
