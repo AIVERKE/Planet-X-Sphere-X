@@ -155,6 +155,51 @@ export interface Messages {
       loadingEpochs: string
       noEpochs: string
       threeDTitle: string
+      pickNebula: string
+      noCapturesNear: string
+      skyMapFailed: string
+      pointingAt: string
+      cutoutWise: string
+      cutoutBlink: string
+      cutoutSpherex: string
+      invalidCoords: string
+      noValidCoords: string
+      wiseEpochsFailed: string
+      motionCue: string
+      opticalContext: string
+      cutoutTag: string
+      cutoutTagTitle: string
+      dataPanelTitle: string
+      detailCutoutTitle: string
+      wiseType: string
+      openBlinkFront: string
+      aladinFallback: string
+      fieldLabel: string
+      irsaBusy: string
+      obsLoadFailed: string
+      raRange: string
+      decRange: string
+      panstarrsFailed: string
+      brightnessCue: string
+    }
+    detail: {
+      aria: string
+      kicker: string
+      drag: string
+      style: string
+      raw: string
+      emptyCutout: string
+      band: string
+      facility: string
+      instrument: string
+      collection: string
+      origin: string
+      originValue: string
+    }
+    float: {
+      aria: string
+      kicker: string
+      closeBlink: string
     }
     onboarding: {
       openGuide: string
@@ -174,6 +219,160 @@ export interface Messages {
       >
       guideSections: Array<{ id: string; title: string; body: string }>
       terms: Array<{ term: string; meaning: string }>
+    }
+    player: {
+      kind: {
+        variableStar: string
+        surveyRegion: string
+        pointSource: string
+        defaultLine: string
+      }
+      scale: {
+        panstarrs: string
+        wiseFallback: string
+        wise: string
+        spherex: string
+      }
+      banner: {
+        spherexTitle: string
+        spherexBody: string
+        wiseTitle: string
+        wiseBody: string
+        wiseFallbackTitle: string
+        wiseFallbackBarnard: string
+        wiseFallbackDefault: string
+        panstarrsTitle: string
+        panstarrsBody: string
+      }
+      wait: {
+        stepListVisits: string
+        stepDownloadPng: string
+        /** `{loaded}` `{total}` */
+        explainImages: string
+        explainCatalogEarly: string
+        explainCatalogMid: string
+        explainCatalogLate: string
+        /** `{seconds}` */
+        clock: string
+        note: string
+        metaIrsaSearching: string
+        metaSlow: string
+      }
+      meta: {
+        /** `{ra}` `{dec}` */
+        listingVisits: string
+        /** `{count}` */
+        downloadingVisits: string
+        spherexTimeoutToWise: string
+        loadingWiseSkipSpherex: string
+        loadingWise: string
+        loadingWiseWiseview: string
+        retryingWise: string
+        panstarrsLastResort: string
+      }
+      errors: {
+        noCaptures404: string
+        irsaOutage: string
+        loadFailed: string
+        pngFrame: string
+        noPngLoaded: string
+        wiseLoadFailed: string
+        switchedToWise: string
+      }
+      tags: {
+        spherexSatellite: string
+        wiseSatellite: string
+        hdSameDate: string
+        panstarrsOptical: string
+        samePhotoSmoother: string
+        sameEpochSmoother: string
+        noTemporalSequence: string
+      }
+      captions: {
+        panstarrsStack: string
+      }
+      controls: {
+        pause: string
+        play: string
+        previous: string
+        next: string
+        atlas: string
+        atlasTitle: string
+        trySpherex: string
+        retrySpherex: string
+        useWiseNow: string
+        useWise: string
+        viewEnlarge: string
+        howItWorks: string
+        hideGuide: string
+        visit: string
+        epochLabel: string
+        /** `{index}` `{total}` */
+        frameOf: string
+        blinkInterval: string
+        blinkIntervalAria: string
+        saturation: string
+        contrast: string
+        zoom: string
+        zoomDuoAria: string
+        blinkSourceAria: string
+        detectorAria: string
+        detectorSpherexAria: string
+        coordsTitle: string
+        /** `{ra}` `{decSign}` `{dec}` */
+        coordsLine: string
+        /** `{ready}` `{total}` */
+        hdProgress: string
+        smoothing: string
+      }
+      pace: {
+        /** `{n}` */
+        visitsWhatIsPhoto: string
+        /** `{n}` */
+        epochsWhatIsPhoto: string
+        whatIsPhoto: string
+        /** `{n}` `{band}` `{ms}` */
+        nowSpherex: string
+        /** `{matched}` `{n}` */
+        archiveExtra: string
+        /** `{n}` `{ms}` */
+        nowWiseFallback: string
+        /** `{n}` `{ms}` */
+        nowWiseChosen: string
+        nowFixed: string
+        guide: {
+          epochsSpherex: string
+          epochsWise: string
+          /** `{ms}` */
+          ms: string
+          epochsPickSpherex: string
+          /** `{n}` */
+          epochsPickWise: string
+          saturation: string
+          contrast: string
+          zoom: string
+          duo: string
+        }
+      }
+      enlarge: {
+        kicker: string
+        fieldTitle: string
+      }
+      paceModal: {
+        kicker: string
+        title: string
+        spherexTitle: string
+        spherexItems: string[]
+        wiseTitle: string
+        wiseItems: string[]
+        epochVsBlinkTitle: string
+        epochVsBlinkItems: string[]
+        controlsTitle: string
+        controlsSaturation: string
+        controlsContrast: string
+        controlsZoom: string
+        controlsDuo: string
+      }
     }
   }
   panel: {
