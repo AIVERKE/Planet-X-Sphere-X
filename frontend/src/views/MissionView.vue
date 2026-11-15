@@ -6,6 +6,7 @@ import {
   applyLocalHips,
   loadAladinLite,
   patchAladinNetwork,
+  presetSurvey,
   refreshAladinView,
   setAladinFoV,
   type AladinInstance,
@@ -99,6 +100,8 @@ const SURVEYS = (Object.keys(LOCAL_HIPS) as LocalHipsId[]).map((id) => ({
 }))
 
 const surveyId = ref<LocalHipsId>('esa-dss')
+/** Resultado de la prueba de tiles al arrancar: si ESA no respondió, los presets usan IRSA. */
+let esaReachable = true
 const skyAspect = ref(1.6)
 const aladinApi = shallowRef<AladinAPI | null>(null)
 const skyHint = ref('Preparando atlas…')
@@ -357,6 +360,7 @@ async function boot() {
         /* timeout o red: prueba el siguiente mapa */
       }
     }
+    esaReachable = hipsUrl === LOCAL_HIPS['esa-dss'].url
     if (!hipsUrl) {
       throw new Error('El mapa del cielo no respondió. Pulsa Reintentar.')
     }
@@ -859,7 +863,8 @@ async function visitPreset(
   motionRadius.value = OBS_RADIUS_ARCSEC
 
   // Nebulosas / campos: DSS color se ve más “real” al acercarse con tiles HD.
-  surveyId.value = target.category === 'survey_field' ? 'dss2-color' : 'esa-dss'
+  // Si ESA no respondió al arrancar, se queda en IRSA.
+  surveyId.value = presetSurvey(target.category, esaReachable)
   applySurvey()
   // Atlas: FOV cómodo para DSS. El zoom extremo SPHEREx es Detalle / Blink.
   const atlasFov = Math.min(FOV_MAX, Math.max(FOV_MIN, fovHd))
