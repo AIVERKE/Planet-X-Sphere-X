@@ -31,6 +31,8 @@ const hdReady = ref(0)
 const skipped = ref(0)
 const errorMessage = ref('')
 const metaHint = ref('Consultando IRSA…')
+/** True mientras se recarga sin vaciar los planos ya visibles. */
+const reloading = ref(false)
 let loadToken = 0
 
 const frameCount = computed(() => frames.value.length)
@@ -102,13 +104,20 @@ async function warmHd(frameList: SpherexFrame[], token: number) {
 
 async function load() {
   const token = ++loadToken
+  const keepPlanes = frames.value.length > 0 && (phase.value === 'ready' || phase.value === 'images')
   reset()
-  frames.value = []
   skipped.value = 0
-  phase.value = 'meta'
   errorMessage.value = ''
   loadedImages.value = 0
   hdReady.value = 0
+  // No vaciar los planos al cambiar de punto: evita parpadeo/blank al panear.
+  if (keepPlanes) {
+    reloading.value = true
+  } else {
+    reloading.value = false
+    frames.value = []
+    phase.value = 'meta'
+  }
   metaHint.value = `Pidiendo SPHEREx en este punto · AR ${props.ra.toFixed(3)}° · Dec ${props.dec.toFixed(3)}°`
 
   try {
@@ -120,15 +129,17 @@ async function load() {
       band: band.value,
     })
     if (token !== loadToken) return
-    frames.value = result.frames
     availableBands.value = result.available_bands
     matched.value = result.matched
     band.value = result.band
-    phase.value = 'images'
+    if (!keepPlanes) {
+      frames.value = result.frames
+      phase.value = 'images'
+    }
     metaHint.value = `Bajando la primera época · ${result.returned} en este punto`
     let started = false
     const ok = await Promise.all(
-      result.frames.map(async (frame, i) => {
+      result.frames.map(async (frame) => {
         try {
           await preloadOne(apiUrl(frame.png_url))
           if (token !== loadToken) return true
@@ -137,6 +148,7 @@ async function load() {
             started = true
             frames.value = result.frames
             phase.value = 'ready'
+            reloading.value = false
             if (result.frames.length >= 2) play()
           }
           return true
@@ -152,11 +164,13 @@ async function load() {
     if (!usable.length) throw new Error('No se pudo cargar ningún cuadro PNG')
     frames.value = usable
     phase.value = 'ready'
+    reloading.value = false
     void warmHd(usable, token)
   } catch (error) {
     if (token !== loadToken) return
     errorMessage.value = classify(error)
     phase.value = 'error'
+    reloading.value = false
     frames.value = []
   }
 }
@@ -227,8 +241,8 @@ watch(
       </button>
     </div>
 
-    <p v-if="phase === 'meta'" class="player__meta">{{ metaHint }}</p>
-    <div v-else-if="phase === 'images'" class="player__progress">
+    <p v-if="phase === 'meta' && !reloading" class="player__meta">{{ metaHint }}</p>
+    <div v-else-if="phase === 'images' && !reloading" class="player__progress">
       <p class="player__meta">Cargando satélite {{ loadedImages }} / {{ frames.length }}</p>
       <div class="player__bar" role="progressbar" :aria-valuenow="progress" aria-valuemin="0" aria-valuemax="100">
         <span :style="{ width: `${progress}%` }" />
@@ -238,6 +252,7 @@ watch(
       <p>{{ errorMessage }}</p>
       <button type="button" class="player__go" @click="load">Reintentar</button>
     </div>
+    <p v-if="reloading && phase !== 'error'" class="player__meta">{{ metaHint }}</p>
 
     <template v-if="active && phase !== 'error'">
       <div class="player__controls">
@@ -249,6 +264,14 @@ watch(
         </button>
         <button type="button" class="player__step" :disabled="!frames.length" @click="next()">
           Siguiente
+        </button>
+        <button
+          type="button"
+          class="player__step"
+          title="Centrar el atlas Aladin en este campo"
+          @click="focusOnSky"
+        >
+          Atlas
         </button>
         <label>
           ms
@@ -276,28 +299,18 @@ watch(
       <div class="player__duo" aria-label="Satélite y render HD en el mismo blink">
         <figure class="player__frame player__frame--sat">
           <span class="player__tag">SPHEREx · satélite</span>
-          <button
-            type="button"
-            class="player__shot"
-            title="Ver este campo en el atlas Aladin"
-            @click="focusOnSky"
-          >
+          <div class="player__shot">
             <img :src="apiUrl(active.png_url)" :alt="`SPHEREx raw ${active.band}`" />
-          </button>
-          <figcaption>{{ overlay }} · clic → atlas</figcaption>
+          </div>
+          <figcaption>{{ overlay }}</figcaption>
         </figure>
         <figure class="player__frame player__frame--hd">
           <span class="player__tag">Lectura IR · misma época</span>
-          <button
-            type="button"
-            class="player__shot"
-            title="Ver este campo en el atlas Aladin"
-            @click="focusOnSky"
-          >
+          <div class="player__shot">
             <img :src="hdSrc(active)" :alt="`SPHEREx HD ${active.band}`" />
-          </button>
+          </div>
           <figcaption>
-            <template v-if="hdReady >= frames.length">Mismos píxeles · núcleo relleno · clic → atlas</template>
+            <template v-if="hdReady >= frames.length">Mismos píxeles · núcleo relleno</template>
             <template v-else>Suavizando {{ hdReady }}/{{ frames.length }}…</template>
           </figcaption>
         </figure>
@@ -529,7 +542,8 @@ watch(
 }
 
 .player__shot {
-  display: block;
+  display: grid;
+  place-items: stretch;
   width: 100%;
   height: 100%;
   min-height: 0;
@@ -537,13 +551,7 @@ watch(
   margin: 0;
   border: 1px solid rgba(255, 255, 255, 0.25);
   background: #000;
-  cursor: zoom-in;
   overflow: hidden;
-}
-
-.player__shot:focus-visible {
-  outline: 2px solid rgba(232, 196, 120, 0.85);
-  outline-offset: 2px;
 }
 
 .player__frame img {
