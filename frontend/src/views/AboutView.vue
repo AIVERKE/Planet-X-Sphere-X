@@ -43,15 +43,40 @@ function goBack() {
   void router.push({ name: 'explorer' })
 }
 
+function goCatalog() {
+  void router.push({ name: 'catalog' })
+}
+
 function jumpTo(sectionProgress: number) {
   const max = Math.max(0, document.documentElement.scrollHeight - window.innerHeight)
   window.scrollTo({ top: max * sectionProgress, behavior: 'smooth' })
+}
+
+function goSection(delta: number) {
+  const next = Math.min(
+    aboutSections.length - 1,
+    Math.max(0, activeIndex.value + delta),
+  )
+  if (next === activeIndex.value) return
+  jumpTo(aboutSections[next].cameraAt)
+}
+
+function onKey(event: KeyboardEvent) {
+  if (event.metaKey || event.ctrlKey || event.altKey) return
+  if (event.key === 'ArrowRight' || event.key === 'ArrowDown') {
+    event.preventDefault()
+    goSection(1)
+  } else if (event.key === 'ArrowLeft' || event.key === 'ArrowUp') {
+    event.preventDefault()
+    goSection(-1)
+  }
 }
 
 onMounted(() => {
   document.documentElement.classList.add('is-explorer')
   document.documentElement.classList.remove('is-look-locked')
   window.scrollTo(0, 0)
+  window.addEventListener('keydown', onKey)
 
   if (!stage.value) return
   trigger = ScrollTrigger.create({
@@ -66,6 +91,7 @@ onMounted(() => {
 })
 
 onUnmounted(() => {
+  window.removeEventListener('keydown', onKey)
   trigger?.kill()
   trigger = null
   document.documentElement.classList.remove('is-explorer')
@@ -105,18 +131,18 @@ onUnmounted(() => {
       </header>
 
       <nav
-        class="pointer-events-none fixed top-[58%] left-4 z-20 hidden w-[9.5rem] -translate-y-1/2 flex-col gap-3 lg:left-8 lg:flex lg:w-[11rem]"
+        class="pointer-events-none fixed top-1/2 left-4 z-20 hidden w-[10rem] -translate-y-1/2 flex-col gap-2 lg:left-8 lg:flex lg:w-[11.5rem]"
         aria-label="Secciones"
       >
         <button
           v-for="(section, index) in aboutSections"
           :key="section.id"
           type="button"
-          class="pointer-events-auto flex items-center gap-3 text-left"
+          class="pointer-events-auto flex items-center gap-2.5 text-left"
           @click="jumpTo(section.cameraAt)"
         >
           <span
-            class="hud-diamond block h-2 w-2 shrink-0 rotate-45 border transition"
+            class="hud-diamond block h-1.5 w-1.5 shrink-0 rotate-45 border transition"
             :class="
               activeIndex === index
                 ? 'border-[var(--hud-gold)] bg-[var(--hud-gold)]/80'
@@ -124,7 +150,7 @@ onUnmounted(() => {
             "
           />
           <span
-            class="truncate text-[11px] tracking-[0.18em] uppercase transition lg:text-[12px]"
+            class="truncate text-[10px] tracking-[0.16em] uppercase transition lg:text-[11px]"
             :class="
               activeIndex === index
                 ? 'hud-link-gold hud-underline hud-underline-gold is-active'
@@ -153,7 +179,7 @@ onUnmounted(() => {
       <section
         v-for="section in aboutSections"
         :key="section.id"
-        class="pointer-events-none fixed inset-x-0 top-0 bottom-0 z-10 flex items-start justify-center overflow-hidden px-4 pt-[9vh] pb-8 sm:px-8 sm:pt-[10vh] lg:justify-start lg:pl-[14rem] lg:pr-10"
+        class="pointer-events-none fixed inset-x-0 top-0 bottom-0 z-10 flex items-start justify-center overflow-hidden px-4 pt-[9vh] pb-24 sm:px-8 sm:pt-[10vh] lg:justify-start lg:pl-[14rem] lg:pr-10"
         :style="{ opacity: sectionOpacity(section.id) }"
         :aria-hidden="sectionOpacity(section.id) < 0.08"
       >
@@ -188,28 +214,65 @@ onUnmounted(() => {
               <span class="min-w-0 break-words">{{ point }}</span>
             </li>
           </ul>
+          <button
+            v-if="section.id === 'cierre'"
+            type="button"
+            class="hud-panel pointer-events-auto mt-2 inline-flex w-fit items-center gap-3 border border-[var(--hud-gold-border)] px-4 py-2.5 text-left transition hover:bg-white/5"
+            @click="goCatalog"
+          >
+            <span class="hud-diamond h-1.5 w-1.5 rotate-45 border bg-[var(--hud-gold)]/80" aria-hidden="true" />
+            <span class="hud-text-gold text-[12px] tracking-[0.22em] uppercase sm:text-[13px]">
+              {{ m.about.catalogCta }}
+            </span>
+          </button>
         </div>
       </section>
 
       <div
-        v-show="progress < 0.08"
-        class="fixed bottom-8 left-1/2 z-20 -translate-x-1/2 text-center"
+        class="pointer-events-none fixed inset-x-0 bottom-6 z-20 flex items-center justify-center gap-4 px-4 sm:bottom-8"
       >
-        <div class="scroll-line mx-auto mb-3 h-12 w-px bg-[var(--hud-gold)]/70" />
-        <p class="hud-kicker-gold text-[12px] tracking-[0.28em] uppercase sm:text-[13px]">
-          {{ m.about.scrollHint }}
-        </p>
+        <button
+          type="button"
+          class="hud-panel pointer-events-auto flex h-10 w-10 items-center justify-center border border-[var(--hud-gold-border)] text-[var(--hud-gold)] transition hover:bg-white/5 disabled:opacity-30"
+          :disabled="activeIndex <= 0"
+          aria-label="Anterior"
+          @click="goSection(-1)"
+        >
+          <span aria-hidden="true" class="text-lg tracking-normal">←</span>
+        </button>
+
+        <div class="min-w-[10rem] text-center">
+          <p class="hud-kicker-gold text-[11px] tracking-[0.28em] uppercase sm:text-[12px]">
+            {{ activeSection.index }} / {{ String(aboutSections.length).padStart(2, '0') }}
+          </p>
+          <p
+            v-show="progress < 0.08"
+            class="hud-text-muted mt-1 text-[11px] tracking-[0.2em] uppercase"
+          >
+            {{ m.about.scrollHint }}
+          </p>
+        </div>
+
+        <button
+          type="button"
+          class="hud-panel pointer-events-auto flex h-10 w-10 items-center justify-center border border-[var(--hud-gold-border)] text-[var(--hud-gold)] transition hover:bg-white/5 disabled:opacity-30"
+          :disabled="activeIndex >= aboutSections.length - 1"
+          aria-label="Siguiente"
+          @click="goSection(1)"
+        >
+          <span aria-hidden="true" class="text-lg tracking-normal">→</span>
+        </button>
       </div>
 
       <div
-        class="hud-meter fixed right-5 bottom-8 hidden h-28 w-px md:block"
+        class="hud-meter fixed right-5 bottom-24 hidden h-28 w-px md:block"
         aria-hidden="true"
       >
         <div class="hud-meter__fill w-px" :style="{ height: `${progress * 100}%` }" />
       </div>
     </div>
 
-    <div ref="stage" class="relative h-[720vh]" aria-hidden="true" />
+    <div ref="stage" class="relative h-[1080vh]" aria-hidden="true" />
   </div>
 </template>
 

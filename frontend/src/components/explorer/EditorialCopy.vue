@@ -23,7 +23,7 @@ const copyOpacity = computed(() => {
     :style="{ opacity: lookOpacity }"
   >
     <span class="hud-diamond block h-2 w-2 rotate-45 border" aria-hidden="true" />
-    <h1 class="hud-text-gold text-center text-[clamp(18px,3.2vw,42px)] font-medium tracking-[0.22em] uppercase">
+    <h1 class="hud-text-gold text-center text-[clamp(28px,6.5vw,72px)] font-bold tracking-[0.14em] uppercase">
       {{ m.brand }}
     </h1>
   </div>

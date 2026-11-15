@@ -8,14 +8,12 @@ import ChapterMarker from '@/components/explorer/ChapterMarker.vue'
 import EditorialCopy from '@/components/explorer/EditorialCopy.vue'
 import PlanetExplorerHUD from '@/components/explorer/PlanetExplorerHUD.vue'
 import SpherexMissionSection from '@/components/explorer/SpherexMissionSection.vue'
-import { useExplorerMusic } from '@/composables/useExplorerMusic'
 import { useI18n } from '@/composables/useI18n'
 import { useSpaceStore } from '@/stores/useSpaceStore'
 import '@/styles/explorer.css'
 
 const store = useSpaceStore()
 const { m } = useI18n()
-useExplorerMusic()
 
 if (typeof document !== 'undefined') {
   document.documentElement.classList.add('is-explorer')
@@ -65,7 +63,7 @@ onUnmounted(() => {
 
       <div
         v-if="store.cameraMode === 'look'"
-        class="fixed inset-x-0 bottom-10 flex flex-col items-center gap-4 px-6 text-center"
+        class="fixed inset-x-0 bottom-10 z-20 flex flex-col items-center gap-4 px-6 text-center"
       >
         <div class="hud-meter h-px w-40">
           <div
@@ -76,11 +74,17 @@ onUnmounted(() => {
         <p class="hud-text text-[11px] tracking-[0.28em] uppercase">{{ hint }}</p>
         <button
           type="button"
-          class="hud-btn-gold pointer-events-auto w-auto min-w-[12rem] px-5 text-[10px]"
+          class="hud-btn-gold hud-btn-gold--pulse pointer-events-auto w-auto min-w-[14rem] px-6 py-3.5 text-[12px] tracking-[0.22em] sm:min-w-[16rem] sm:text-[13px]"
           @click="store.requestAscent()"
         >
           {{ m.look.ascend }}
         </button>
+        <p
+          v-if="store.skyReady"
+          class="hud-text-muted pointer-events-none text-[10px] tracking-[0.18em] uppercase"
+        >
+          {{ m.look.landscapeCredit }}
+        </p>
       </div>
 
       <div

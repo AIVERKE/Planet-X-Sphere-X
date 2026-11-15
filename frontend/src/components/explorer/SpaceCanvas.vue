@@ -84,7 +84,7 @@ onUnmounted(() => {
     ref="canvas"
     class="fixed inset-0 z-0 block h-full w-full"
     :class="{ 'touch-none cursor-grab active:cursor-grabbing': store.cameraMode === 'look' || store.cameraMode === 'orbit' }"
-    aria-label="Planet X and SPHEREx. Paisaje 360, luego exploración del sistema."
+    aria-label="SCOUT · SPHEREx. 360 landscape, then system exploration."
   />
   <p
     v-if="failed"

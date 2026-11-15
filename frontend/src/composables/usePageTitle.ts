@@ -2,7 +2,7 @@ import { watchEffect } from 'vue'
 import { useRoute } from 'vue-router'
 import { useLocaleStore } from '@/stores/useLocaleStore'
 
-export function usePageTitle(fallback = 'Planet X and SPHEREx') {
+export function usePageTitle(fallback = 'SCOUT · SPHEREx') {
   const route = useRoute()
   const localeStore = useLocaleStore()
 
@@ -12,6 +12,6 @@ export function usePageTitle(fallback = 'Planet X and SPHEREx') {
       key === 'explorer' || key === 'mission' || key === 'home'
         ? localeStore.messages.routes[key]
         : fallback
-    document.title = `${title} · Planet X and SPHEREx`
+    document.title = `${title} · SCOUT · SPHEREx`
   })
 }
