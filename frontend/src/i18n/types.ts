@@ -89,6 +89,25 @@ export interface Messages {
     retry: string
     hint: string
     aladinAria: string
+    onboarding: {
+      openGuide: string
+      skip: string
+      next: string
+      back: string
+      done: string
+      progress: string
+      guideTitle: string
+      guideLead: string
+      guideClose: string
+      guideRestart: string
+      glossaryTitle: string
+      steps: Record<
+        'atlas' | 'targets' | 'data' | 'motion' | 'interpret',
+        { title: string; body: string }
+      >
+      guideSections: Array<{ id: string; title: string; body: string }>
+      terms: Array<{ term: string; meaning: string }>
+    }
   }
   panel: {
     homeTitle: string
